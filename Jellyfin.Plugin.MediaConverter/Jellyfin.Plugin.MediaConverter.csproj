@@ -37,6 +37,8 @@
   <ItemGroup>
     <None Remove="Web\browser.html" />
     <EmbeddedResource Include="Web\browser.html" />
+    <None Remove="Web\browser.js" />
+    <EmbeddedResource Include="Web\browser.js" />
   </ItemGroup>
 
 </Project>

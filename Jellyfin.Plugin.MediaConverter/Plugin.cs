@@ -56,6 +56,14 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Web.browser.html", GetType().Namespace),
                 MenuIcon = "video_settings",
                 EnableInMainMenu = true
+            },
+            new PluginPageInfo
+            {
+                // Served as its own page and pulled in via <script src> from browser.html, rather than
+                // inlined directly in the HTML - some Jellyfin web client versions don't reliably execute
+                // <script> tags embedded in a config page's markup.
+                Name = "mediaconverterjs",
+                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Web.browser.js", GetType().Namespace)
             }
         ];
     }
