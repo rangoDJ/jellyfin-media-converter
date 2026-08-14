@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.5.0",
+        "changelog": "1.0.5: The dashboard's JavaScript is now served as its own embedded page and loaded via a <script src> reference, instead of being inlined directly in the config page's HTML - inline scripts weren't reliably executing on some Jellyfin web client versions (12.0-rc5), which was the actual root cause behind the button clicks silently doing nothing even after the 1.0.4 fix. 1.0.4: Fixed Search/Convert/Cancel going dead again after navigating back to the Media Converter page within the same browser session - a one-time init guard was skipping listener setup on freshly inserted DOM elements after the first page visit. 1.0.3: Searching now matches series names too, showing an episode picker (ordered by season/episode) instead of requiring the exact episode title. The dashboard also surfaces API errors visibly instead of failing silently. 1.0.2: Fixed the plugin always reporting itself as version 0.0.0.0, which made Jellyfin's plugin details page fail with \"An error occurred while getting the plugin details from the repository.\" 1.0.1: Fixed the dashboard page's Search/Convert/Cancel buttons never responding to clicks - a pageshow event guard was checking the wrong DOM node and always bailing out before wiring up any listeners. 1.0.0: Initial release: dashboard library browser, convert dialog with curated presets plus an advanced raw ffmpeg-args override, replace/variant modes, and live job progress.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/rangoDJ/jellyfin-media-converter/releases/download/v1.0.5/jellyfin-media-converter_1.0.5.0.zip",
+        "checksum": "2389580bda6e284ab1b8f86382855a59",
+        "timestamp": "2026-08-14T22:33:27Z"
+      },
+      {
         "version": "1.0.4.0",
         "changelog": "1.0.4: Fixed Search/Convert/Cancel going dead again after navigating back to the Media Converter page within the same browser session - a one-time init guard was skipping listener setup on freshly inserted DOM elements after the first page visit. 1.0.3: Searching now matches series names too, showing an episode picker (ordered by season/episode) instead of requiring the exact episode title. The dashboard also surfaces API errors visibly instead of failing silently. 1.0.2: Fixed the plugin always reporting itself as version 0.0.0.0, which made Jellyfin's plugin details page fail with \"An error occurred while getting the plugin details from the repository.\" 1.0.1: Fixed the dashboard page's Search/Convert/Cancel buttons never responding to clicks - a pageshow event guard was checking the wrong DOM node and always bailing out before wiring up any listeners. 1.0.0: Initial release: dashboard library browser, convert dialog with curated presets plus an advanced raw ffmpeg-args override, replace/variant modes, and live job progress.",
         "targetAbi": "12.0.0.0",
