@@ -26,32 +26,45 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install jprm
-        run: pip install jprm
+      - name: Install Python dependencies
+        run: pip install pyyaml
 
-      - name: Determine version
-        id: version
-        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.MediaConverter.sln
 
-      - name: Build plugin package
-        run: jprm plugin build . --output ./artifacts --version "${{ steps.version.outputs.version }}"
+      - name: Build
+        run: dotnet build Jellyfin.Plugin.MediaConverter.sln --configuration Release --no-restore
+
+      - name: Determine version and package name
+        id: package
+        run: |
+          set -euo pipefail
+          version=${GITHUB_REF_NAME#v}
+          zip_name="jellyfin-media-converter_${version}.zip"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=${zip_name}" >> "$GITHUB_OUTPUT"
+
+      - name: Package plugin zip
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts
+          zip -j "artifacts/${{ steps.package.outputs.zip_name }}" \
+            "Jellyfin.Plugin.MediaConverter/bin/Release/net10.0/Jellyfin.Plugin.MediaConverter.dll"
 
       - name: Create GitHub release
         uses: softprops/action-gh-release@v2
         with:
-          name: "v${{ steps.version.outputs.version }}"
+          name: "v${{ steps.package.outputs.version }}"
           tag_name: ${{ github.ref_name }}
-          files: artifacts/*.zip
+          files: artifacts/${{ steps.package.outputs.zip_name }}
 
       - name: Update repository manifest
         run: |
-          set -euo pipefail
-          zip_file=$(ls artifacts/*.zip)
-          zip_name=$(basename "$zip_file")
-          jprm repo add \
-            --url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${zip_name}" \
+          python3 scripts/update_manifest.py \
             manifest.json \
-            "$zip_file"
+            build.yaml \
+            "artifacts/${{ steps.package.outputs.zip_name }}" \
+            "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${{ steps.package.outputs.zip_name }}"
 
       - name: Commit updated manifest
         run: |
@@ -62,6 +75,6 @@ jobs:
           if git diff --cached --quiet; then
             echo "No manifest changes to commit"
           else
-            git commit -m "Add v${{ steps.version.outputs.version }} to repository manifest"
+            git commit -m "Add v${{ steps.package.outputs.version }} to repository manifest"
             git push origin HEAD:master
           fi
