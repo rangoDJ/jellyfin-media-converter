@@ -34,13 +34,13 @@ public class HardwareEncoderResolver
         var options = (EncodingOptions)_configurationManager.GetConfiguration("encoding");
         var codec = (codecFamily ?? "hevc").Trim().ToLowerInvariant();
 
-        return (options.HardwareAccelerationType ?? string.Empty).ToLowerInvariant() switch
+        return options.HardwareAccelerationType switch
         {
-            "qsv" => ResolveQsv(codec),
-            "nvenc" => ResolveNvenc(codec),
-            "amf" => ResolveAmf(codec),
-            "vaapi" => ResolveVaapi(codec, options.VaapiDevice),
-            "videotoolbox" => ResolveVideoToolbox(codec),
+            HardwareAccelerationType.Qsv => ResolveQsv(codec),
+            HardwareAccelerationType.Nvenc => ResolveNvenc(codec),
+            HardwareAccelerationType.Amf => ResolveAmf(codec),
+            HardwareAccelerationType.Vaapi => ResolveVaapi(codec, options.VaapiDevice),
+            HardwareAccelerationType.VideoToolbox => ResolveVideoToolbox(codec),
             _ => ResolveSoftware(codec)
         };
     }
