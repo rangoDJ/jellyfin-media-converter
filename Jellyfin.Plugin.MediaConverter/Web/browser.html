@@ -255,12 +255,6 @@
             }
 
             function init() {
-                if (window.__mediaConverterInitialized) {
-                    return;
-                }
-
-                window.__mediaConverterInitialized = true;
-
                 document.getElementById('searchButton').addEventListener('click', search);
 
                 document.getElementById('backToResultsButton').addEventListener('click', function () {
