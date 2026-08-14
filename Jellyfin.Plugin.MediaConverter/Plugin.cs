@@ -64,6 +64,15 @@ public class Plugin : BasePlugin<PluginConfiguration>, IHasWebPages
                 // <script> tags embedded in a config page's markup.
                 Name = "mediaconverterjs",
                 EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Web.browser.js", GetType().Namespace)
+            },
+            new PluginPageInfo
+            {
+                // Not linked from anywhere in the SPA - served here only so it has a stable URL to
+                // reference from an external global script injector (see README). Adds a quick-convert
+                // button to movie/episode detail pages, sidestepping the config-page script issue above
+                // since scripts loaded that way are real <script> tags in the top-level page.
+                Name = "mediaconverteritemjs",
+                EmbeddedResourcePath = string.Format(CultureInfo.InvariantCulture, "{0}.Web.itemdetail.js", GetType().Namespace)
             }
         ];
     }

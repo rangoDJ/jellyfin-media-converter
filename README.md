@@ -73,12 +73,34 @@ control what the convert dialog preselects:
 | `TempFileSuffix` | `.mediaconverter.tmp` | Suffix for the temp file ffmpeg writes before it's swapped into place |
 | `VariantSuffixTemplate` | `{name}-{codec}{ext}` | Filename template for "create new variant" mode |
 
+## Known issue: the dashboard page's JavaScript may not run
+
+On some Jellyfin web client builds (confirmed on server 12.0-rc5), the
+config-page loader strips `<script>` tags — inline or `src`-referenced —
+from a plugin's fetched config page HTML before inserting it into the SPA,
+so [browser.js](Jellyfin.Plugin.MediaConverter/Web/browser.js) never
+executes and Search/Convert/Cancel do nothing, even though the server is
+serving the correct content. Two workarounds:
+
+- **Open the page directly**: navigate to
+  `<your-server>/web/configurationpage?name=mediaconverter` directly in the
+  browser's address bar (not via the sidebar link). That's a genuine full
+  page load rather than an AJAX fetch-and-inject, so the script runs normally.
+- **Item detail button**: if you have a global script injector installed
+  (e.g. the [JavaScript Injector](https://github.com/JustAMan/jellyfin-plugin-js-injector)
+  plugin), paste the contents of
+  [itemdetail.js](Jellyfin.Plugin.MediaConverter/Web/itemdetail.js) into it.
+  It adds a floating **Convert** button on movie/episode detail pages that
+  calls this plugin's API directly, sidestepping the config-page issue
+  entirely since scripts loaded that way are real `<script>` tags in the
+  top-level page.
+
 ## Releasing
 
 Pushing a tag matching `v*.*.*` (e.g. `v1.0.1`) triggers
 [.github/workflows/publish.yml](.github/workflows/publish.yml), which:
 
-1. Builds the plugin and packages it into a zip with [jprm](https://github.com/jellyfin/jellyfin-plugin-repository-manager).
+1. Builds the plugin and packages it into a zip.
 2. Publishes that zip to a GitHub Release for the tag.
 3. Adds an entry for the new version to [manifest.json](manifest.json) and
    commits it back to `master` — this is the file the repository URL above

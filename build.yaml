@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.5.0"
+version: "1.0.6.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,12 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.6: Confirmed Jellyfin's config-page loader strips <script> tags
+  entirely (inline or external) on some web client versions, so the
+  dashboard page's JS may never run regardless of how it's referenced.
+  Adds itemdetail.js, a standalone script for use with a global script
+  injector plugin (e.g. JavaScript Injector), which adds a floating
+  Convert button directly on movie/episode detail pages.
   1.0.5: The dashboard's JavaScript is now served as its own embedded
   page and loaded via a <script src> reference, instead of being
   inlined directly in the config page's HTML - inline scripts weren't

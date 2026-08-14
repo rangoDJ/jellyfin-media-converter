@@ -39,6 +39,8 @@
     <EmbeddedResource Include="Web\browser.html" />
     <None Remove="Web\browser.js" />
     <EmbeddedResource Include="Web\browser.js" />
+    <None Remove="Web\itemdetail.js" />
+    <EmbeddedResource Include="Web\itemdetail.js" />
   </ItemGroup>
 
 </Project>
