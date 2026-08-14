@@ -6,6 +6,7 @@ using Jellyfin.Plugin.MediaConverter.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Plugin.MediaConverter.Controllers;
