@@ -83,8 +83,8 @@
                 });
             }
 
-            function renderLibrary(page, items) {
-                var container = page.querySelector('#libraryResults');
+            function renderLibrary(items) {
+                var container = document.getElementById('libraryResults');
                 container.innerHTML = '';
 
                 items.forEach(function (item) {
@@ -101,7 +101,7 @@
                     button.textContent = 'Convert';
                     button.addEventListener('click', function () {
                         selectedItemId = item.Id;
-                        page.querySelector('#convertDialog').style.display = 'block';
+                        document.getElementById('convertDialog').style.display = 'block';
                     });
                     row.appendChild(button);
 
@@ -109,8 +109,8 @@
                 });
             }
 
-            function renderJobs(page, jobs) {
-                var container = page.querySelector('#jobResults');
+            function renderJobs(jobs) {
+                var container = document.getElementById('jobResults');
                 container.innerHTML = '';
 
                 jobs.forEach(function (job) {
@@ -136,54 +136,51 @@
                 });
             }
 
-            function refreshJobs(page) {
-                apiGet('MediaConverter/Jobs').then(function (jobs) {
-                    renderJobs(page, jobs);
-                });
+            function refreshJobs() {
+                apiGet('MediaConverter/Jobs').then(renderJobs);
             }
 
-            function search(page) {
-                var searchTerm = page.querySelector('#searchTerm').value || '';
-                apiGet('MediaConverter/Library?searchTerm=' + encodeURIComponent(searchTerm)).then(function (items) {
-                    renderLibrary(page, items);
-                });
+            function search() {
+                var searchTerm = document.getElementById('searchTerm').value || '';
+                apiGet('MediaConverter/Library?searchTerm=' + encodeURIComponent(searchTerm)).then(renderLibrary);
             }
 
-            document.addEventListener('pageshow', function (event) {
-                var page = event.target;
-                if (!page.querySelector || !page.querySelector('#mediaConverterPage')) {
+            function init() {
+                if (window.__mediaConverterInitialized) {
                     return;
                 }
 
-                var pageElement = page;
+                window.__mediaConverterInitialized = true;
 
-                pageElement.querySelector('#searchButton').addEventListener('click', function () {
-                    search(pageElement);
-                });
+                document.getElementById('searchButton').addEventListener('click', search);
 
-                pageElement.querySelector('#startConversionButton').addEventListener('click', function () {
+                document.getElementById('startConversionButton').addEventListener('click', function () {
                     if (!selectedItemId) {
                         return;
                     }
 
                     apiPost('MediaConverter/Convert', {
                         ItemId: selectedItemId,
-                        Container: pageElement.querySelector('#containerSelect').value,
-                        VideoCodec: pageElement.querySelector('#codecSelect').value,
-                        Quality: parseInt(pageElement.querySelector('#qualityInput').value, 10),
-                        Mode: pageElement.querySelector('#modeSelect').value,
-                        FfmpegArgsOverride: pageElement.querySelector('#ffmpegOverrideInput').value || null
+                        Container: document.getElementById('containerSelect').value,
+                        VideoCodec: document.getElementById('codecSelect').value,
+                        Quality: parseInt(document.getElementById('qualityInput').value, 10),
+                        Mode: document.getElementById('modeSelect').value,
+                        FfmpegArgsOverride: document.getElementById('ffmpegOverrideInput').value || null
                     }).then(function () {
-                        pageElement.querySelector('#convertDialog').style.display = 'none';
-                        refreshJobs(pageElement);
+                        document.getElementById('convertDialog').style.display = 'none';
+                        refreshJobs();
                     });
                 });
 
-                refreshJobs(pageElement);
-                setInterval(function () {
-                    refreshJobs(pageElement);
-                }, 3000);
-            });
+                refreshJobs();
+                setInterval(refreshJobs, 3000);
+            }
+
+            init();
+
+            // Belt-and-braces: some Jellyfin web client versions re-fire this custom event
+            // on subsequent navigations to the (cached) page without re-running its scripts.
+            document.addEventListener('pageshow', refreshJobs);
         })();
     </script>
 </body>
