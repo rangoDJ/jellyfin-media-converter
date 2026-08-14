@@ -4,6 +4,7 @@ using System.Linq;
 using Jellyfin.Data.Enums;
 using Jellyfin.Plugin.MediaConverter.Services;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -34,26 +35,66 @@ public class MediaConverterController : ControllerBase
     }
 
     /// <summary>
-    /// Lists video items in the library, optionally filtered by a search term.
+    /// Searches the library by name, matching movies, episodes, and series. Series results don't
+    /// carry a convertible file directly - use <see cref="GetSeriesEpisodes"/> to list their
+    /// episodes and pick one to convert.
     /// </summary>
     /// <param name="searchTerm">An optional case-insensitive name filter.</param>
-    /// <returns>The matching video items.</returns>
+    /// <returns>The matching movies, episodes, and series.</returns>
     [HttpGet("Library")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<IEnumerable<LibraryItemDto>> GetLibrary([FromQuery] string? searchTerm)
     {
         var query = new InternalItemsQuery
         {
-            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode },
+            IncludeItemTypes = new[] { BaseItemKind.Movie, BaseItemKind.Episode, BaseItemKind.Series },
             Recursive = true,
             SearchTerm = searchTerm
         };
 
         var items = _libraryManager.GetItemList(query)
-            .OfType<Video>()
-            .Select(v => new LibraryItemDto(v.Id, v.Name, v.Path, v.RunTimeTicks));
+            .Select(ToDto)
+            .Where(dto => dto is not null);
 
         return Ok(items);
+    }
+
+    /// <summary>
+    /// Lists the episodes belonging to a series, ordered by season and episode number, so the user
+    /// can pick which one to convert.
+    /// </summary>
+    /// <param name="seriesId">The series' library id.</param>
+    /// <returns>The series' episodes.</returns>
+    [HttpGet("Series/{seriesId}/Episodes")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IEnumerable<LibraryItemDto>> GetSeriesEpisodes([FromRoute] Guid seriesId)
+    {
+        var query = new InternalItemsQuery
+        {
+            IncludeItemTypes = new[] { BaseItemKind.Episode },
+            Recursive = true,
+            AncestorIds = new[] { seriesId }
+        };
+
+        var episodes = _libraryManager.GetItemList(query)
+            .OfType<Episode>()
+            .OrderBy(e => e.ParentIndexNumber ?? 0)
+            .ThenBy(e => e.IndexNumber ?? 0)
+            .Select(ToDto)
+            .Where(dto => dto is not null);
+
+        return Ok(episodes);
+    }
+
+    private static LibraryItemDto? ToDto(BaseItem item)
+    {
+        return item switch
+        {
+            Series series => new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null),
+            Episode episode => new LibraryItemDto(episode.Id, episode.Name, "Episode", episode.Path, episode.RunTimeTicks, episode.SeriesName, episode.ParentIndexNumber, episode.IndexNumber),
+            Video video => new LibraryItemDto(video.Id, video.Name, "Movie", video.Path, video.RunTimeTicks, null, null, null),
+            _ => null
+        };
     }
 
     /// <summary>

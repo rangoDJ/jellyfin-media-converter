@@ -7,10 +7,12 @@
     <div id="mediaConverterPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
         <div data-role="content">
             <div class="content-primary">
+                <div id="mediaConverterError" class="verticalSection" style="display:none;color:#ff8a80;"></div>
+
                 <div class="verticalSection">
                     <h1>Media Converter</h1>
                     <div class="inputContainer">
-                        <input is="emby-input" type="text" id="searchTerm" label="Search library" />
+                        <input is="emby-input" type="text" id="searchTerm" label="Search library (movie or show name)" />
                     </div>
                     <button is="emby-button" type="button" class="raised button-submit" id="searchButton">
                         <span>Search</span>
@@ -20,6 +22,14 @@
                 <div class="verticalSection">
                     <h2>Results</h2>
                     <div id="libraryResults"></div>
+                </div>
+
+                <div class="verticalSection" id="episodesSection" style="display:none;">
+                    <h2>Episodes <span id="episodesSeriesName"></span></h2>
+                    <button is="emby-button" type="button" class="raised" id="backToResultsButton">
+                        <span>Back to results</span>
+                    </button>
+                    <div id="episodeResults"></div>
                 </div>
 
                 <div class="verticalSection">
@@ -66,7 +76,6 @@
 
     <script type="text/javascript">
         (function () {
-            var pluginId = 'ced1b4c4-47d1-4cd5-8d22-1491f69676ef';
             var selectedItemId = null;
 
             function apiGet(path) {
@@ -83,30 +92,117 @@
                 });
             }
 
+            function showError(context, error) {
+                console.error('Media Converter: ' + context, error);
+                var banner = document.getElementById('mediaConverterError');
+                if (banner) {
+                    var detail = (error && (error.message || error.statusText)) || 'request failed';
+                    banner.textContent = context + ': ' + detail;
+                    banner.style.display = 'block';
+                }
+            }
+
+            function clearError() {
+                var banner = document.getElementById('mediaConverterError');
+                if (banner) {
+                    banner.style.display = 'none';
+                }
+            }
+
+            function openConvertDialog(itemId) {
+                selectedItemId = itemId;
+                document.getElementById('convertDialog').style.display = 'block';
+            }
+
             function renderLibrary(items) {
+                document.getElementById('episodesSection').style.display = 'none';
+
                 var container = document.getElementById('libraryResults');
                 container.innerHTML = '';
+
+                if (!items.length) {
+                    var empty = document.createElement('div');
+                    empty.textContent = 'No matches.';
+                    container.appendChild(empty);
+                    return;
+                }
 
                 items.forEach(function (item) {
                     var row = document.createElement('div');
                     row.className = 'listItem';
 
                     var name = document.createElement('span');
-                    name.textContent = item.Name;
+                    name.textContent = item.Name + ' (' + item.Type + ')';
                     row.appendChild(name);
 
                     var button = document.createElement('button');
                     button.setAttribute('is', 'emby-button');
                     button.className = 'raised';
-                    button.textContent = 'Convert';
-                    button.addEventListener('click', function () {
-                        selectedItemId = item.Id;
-                        document.getElementById('convertDialog').style.display = 'block';
-                    });
-                    row.appendChild(button);
 
+                    if (item.Type === 'Series') {
+                        button.textContent = 'Browse episodes';
+                        button.addEventListener('click', function () {
+                            browseSeries(item.Id, item.Name);
+                        });
+                    } else {
+                        button.textContent = 'Convert';
+                        button.addEventListener('click', function () {
+                            openConvertDialog(item.Id);
+                        });
+                    }
+
+                    row.appendChild(button);
                     container.appendChild(row);
                 });
+            }
+
+            function browseSeries(seriesId, seriesName) {
+                apiGet('MediaConverter/Series/' + seriesId + '/Episodes')
+                    .then(function (episodes) {
+                        clearError();
+                        renderEpisodes(seriesName, episodes);
+                    })
+                    .catch(function (error) {
+                        showError('Loading episodes', error);
+                    });
+            }
+
+            function renderEpisodes(seriesName, episodes) {
+                document.getElementById('episodesSeriesName').textContent = '- ' + seriesName;
+
+                var container = document.getElementById('episodeResults');
+                container.innerHTML = '';
+
+                if (!episodes.length) {
+                    var empty = document.createElement('div');
+                    empty.textContent = 'No episodes found.';
+                    container.appendChild(empty);
+                } else {
+                    episodes.forEach(function (episode) {
+                        var row = document.createElement('div');
+                        row.className = 'listItem';
+
+                        var label = document.createElement('span');
+                        var seasonEpisode = (episode.SeasonNumber != null && episode.EpisodeNumber != null)
+                            ? 'S' + episode.SeasonNumber + 'E' + episode.EpisodeNumber + ' - '
+                            : '';
+                        label.textContent = seasonEpisode + episode.Name;
+                        row.appendChild(label);
+
+                        var button = document.createElement('button');
+                        button.setAttribute('is', 'emby-button');
+                        button.className = 'raised';
+                        button.textContent = 'Convert';
+                        button.addEventListener('click', function () {
+                            openConvertDialog(episode.Id);
+                        });
+                        row.appendChild(button);
+
+                        container.appendChild(row);
+                    });
+                }
+
+                document.getElementById('episodesSection').style.display = 'block';
             }
 
             function renderJobs(jobs) {
@@ -127,7 +223,9 @@
                         cancelButton.className = 'raised';
                         cancelButton.textContent = 'Cancel';
                         cancelButton.addEventListener('click', function () {
-                            apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel');
+                            apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
+                                showError('Cancelling job', error);
+                            });
                         });
                         row.appendChild(cancelButton);
                     }
@@ -137,12 +235,23 @@
             }
 
             function refreshJobs() {
-                apiGet('MediaConverter/Jobs').then(renderJobs);
+                apiGet('MediaConverter/Jobs')
+                    .then(renderJobs)
+                    .catch(function (error) {
+                        showError('Loading jobs', error);
+                    });
             }
 
             function search() {
                 var searchTerm = document.getElementById('searchTerm').value || '';
-                apiGet('MediaConverter/Library?searchTerm=' + encodeURIComponent(searchTerm)).then(renderLibrary);
+                apiGet('MediaConverter/Library?searchTerm=' + encodeURIComponent(searchTerm))
+                    .then(function (items) {
+                        clearError();
+                        renderLibrary(items);
+                    })
+                    .catch(function (error) {
+                        showError('Searching library', error);
+                    });
             }
 
             function init() {
@@ -153,6 +262,10 @@
                 window.__mediaConverterInitialized = true;
 
                 document.getElementById('searchButton').addEventListener('click', search);
+
+                document.getElementById('backToResultsButton').addEventListener('click', function () {
+                    document.getElementById('episodesSection').style.display = 'none';
+                });
 
                 document.getElementById('startConversionButton').addEventListener('click', function () {
                     if (!selectedItemId) {
@@ -167,8 +280,11 @@
                         Mode: document.getElementById('modeSelect').value,
                         FfmpegArgsOverride: document.getElementById('ffmpegOverrideInput').value || null
                     }).then(function () {
+                        clearError();
                         document.getElementById('convertDialog').style.display = 'none';
                         refreshJobs();
+                    }).catch(function (error) {
+                        showError('Starting conversion', error);
                     });
                 });
 
