@@ -1,1 +1,20 @@
-[]
+[
+  {
+    "guid": "ced1b4c4-47d1-4cd5-8d22-1491f69676ef",
+    "name": "Media Converter",
+    "description": "Browse your Jellyfin library, pick a video, and convert it to a different container/codec using the server's own bundled ffmpeg - automatically using whichever hardware transcoder (Intel QSV, Nvidia NVENC, AMD AMF) is already configured in Jellyfin's playback settings, or CPU if none is enabled - either replacing the original file in place or creating a new variant alongside it, with a live progress bar.",
+    "overview": "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU.",
+    "owner": "rangoDJ",
+    "category": "General",
+    "versions": [
+      {
+        "version": "1.0.0.0",
+        "changelog": "Initial release: dashboard library browser, convert dialog with curated presets plus an advanced raw ffmpeg-args override, replace/variant modes, and live job progress.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/rangoDJ/jellyfin-media-converter/releases/download/v1.0.0/jellyfin-media-converter_1.0.0.zip",
+        "checksum": "9dfa6fb791a01e2d4a932008f2bd47e0",
+        "timestamp": "2026-08-14T21:10:52Z"
+      }
+    ]
+  }
+]
