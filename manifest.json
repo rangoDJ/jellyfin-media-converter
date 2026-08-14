@@ -8,6 +8,14 @@
     "category": "General",
     "versions": [
       {
+        "version": "1.0.3.0",
+        "changelog": "1.0.3: Searching now matches series names too, showing an episode picker (ordered by season/episode) instead of requiring the exact episode title. The dashboard also surfaces API errors visibly instead of failing silently. 1.0.2: Fixed the plugin always reporting itself as version 0.0.0.0, which made Jellyfin's plugin details page fail with \"An error occurred while getting the plugin details from the repository.\" 1.0.1: Fixed the dashboard page's Search/Convert/Cancel buttons never responding to clicks - a pageshow event guard was checking the wrong DOM node and always bailing out before wiring up any listeners. 1.0.0: Initial release: dashboard library browser, convert dialog with curated presets plus an advanced raw ffmpeg-args override, replace/variant modes, and live job progress.",
+        "targetAbi": "12.0.0.0",
+        "sourceUrl": "https://github.com/rangoDJ/jellyfin-media-converter/releases/download/v1.0.3/jellyfin-media-converter_1.0.3.0.zip",
+        "checksum": "05c32cf83a0dc55eef80944c12d4d900",
+        "timestamp": "2026-08-14T21:33:54Z"
+      },
+      {
         "version": "1.0.2.0",
         "changelog": "1.0.2: Fixed the plugin always reporting itself as version 0.0.0.0, which made Jellyfin's plugin details page fail with \"An error occurred while getting the plugin details from the repository.\" 1.0.1: Fixed the dashboard page's Search/Convert/Cancel buttons never responding to clicks - a pageshow event guard was checking the wrong DOM node and always bailing out before wiring up any listeners. 1.0.0: Initial release: dashboard library browser, convert dialog with curated presets plus an advanced raw ffmpeg-args override, replace/variant modes, and live job progress.",
         "targetAbi": "12.0.0.0",
