@@ -176,7 +176,13 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
                 ?? throw new InvalidOperationException("The requested item was not found or is not a video.");
             var encoder = _encoderResolver.Resolve(job.Request.VideoCodec);
 
-            await _engine.RunAsync(job, encoder, item.RunTimeTicks ?? 0, cancellationToken).ConfigureAwait(false);
+            var totalDurationTicks = item.RunTimeTicks ?? 0;
+            if (totalDurationTicks <= 0)
+            {
+                totalDurationTicks = await _engine.ProbeDurationTicksAsync(job.SourcePath, cancellationToken).ConfigureAwait(false);
+            }
+
+            await _engine.RunAsync(job, encoder, totalDurationTicks, cancellationToken).ConfigureAwait(false);
 
             if (job.Request.Mode == ConversionMode.Replace)
             {

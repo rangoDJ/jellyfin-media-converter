@@ -30,6 +30,47 @@ public class ConversionEngine
     }
 
     /// <summary>
+    /// Probes a media file's duration directly via ffprobe. Used as a fallback when the library
+    /// item's own RunTimeTicks metadata is missing (common for freshly-added or partially-scanned
+    /// items), since progress reporting depends on knowing the total duration up front.
+    /// </summary>
+    /// <param name="path">The media file's path.</param>
+    /// <param name="cancellationToken">Token used to cancel the probe.</param>
+    /// <returns>The duration in ticks, or 0 if it could not be determined.</returns>
+    public async Task<long> ProbeDurationTicksAsync(string path, CancellationToken cancellationToken)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _mediaEncoder.ProbePath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        startInfo.ArgumentList.Add("-v");
+        startInfo.ArgumentList.Add("error");
+        startInfo.ArgumentList.Add("-show_entries");
+        startInfo.ArgumentList.Add("format=duration");
+        startInfo.ArgumentList.Add("-of");
+        startInfo.ArgumentList.Add("default=noprint_wrappers=1:nokey=1");
+        startInfo.ArgumentList.Add(path);
+
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+        var output = await process.StandardOutput.ReadToEndAsync(cancellationToken).ConfigureAwait(false);
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+
+        if (process.ExitCode == 0 && double.TryParse(output.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var seconds))
+        {
+            return (long)(seconds * TimeSpan.TicksPerSecond);
+        }
+
+        _logger.LogWarning("Unable to probe duration for {Path}; progress reporting will be unavailable for this job", path);
+        return 0;
+    }
+
+    /// <summary>
     /// Runs ffmpeg for the given job, updating <see cref="ConversionJob.ProgressPercent"/> as it
     /// progresses. Throws if ffmpeg exits with a non-zero code.
     /// </summary>

@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.7.0"
+version: "1.0.8.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,11 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.8: Fixed conversion progress staying frozen at 0% for the whole
+  job. Progress calculation was silently skipped whenever the library
+  item's RunTimeTicks metadata was missing (common for freshly-added
+  or partially-scanned episodes) - now falls back to probing the
+  file's actual duration via ffprobe when that metadata isn't present.
   1.0.7: Actually fixed the dashboard page's script never executing.
   Root-caused against a local Jellyfin 12.0.0 instance by reading the
   web client's own bundle: it extracts only div[data-role="page"] from
