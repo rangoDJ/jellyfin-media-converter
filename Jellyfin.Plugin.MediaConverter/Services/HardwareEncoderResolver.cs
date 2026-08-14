@@ -1,5 +1,6 @@
 using System;
 using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Model.Configuration;
 
 namespace Jellyfin.Plugin.MediaConverter.Services;
 
@@ -9,6 +10,9 @@ namespace Jellyfin.Plugin.MediaConverter.Services;
 /// </summary>
 public class HardwareEncoderResolver
 {
+    private static readonly string[] QsvInitArgs = { "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw" };
+    private static readonly string[] VaapiFormatArgs = { "-vf", "format=nv12,hwupload" };
+
     private readonly IServerConfigurationManager _configurationManager;
 
     /// <summary>
@@ -27,7 +31,7 @@ public class HardwareEncoderResolver
     /// <returns>The resolved encoder and its extra arguments.</returns>
     public EncoderSelection Resolve(string codecFamily)
     {
-        var options = _configurationManager.GetEncodingOptions();
+        var options = _configurationManager.GetConfiguration<EncodingOptions>("encoding");
         var codec = (codecFamily ?? "hevc").Trim().ToLowerInvariant();
 
         return (options.HardwareAccelerationType ?? string.Empty).ToLowerInvariant() switch
@@ -53,7 +57,7 @@ public class HardwareEncoderResolver
         return new EncoderSelection(
             encoder,
             "-global_quality",
-            new[] { "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw" },
+            QsvInitArgs,
             Array.Empty<string>());
     }
 
@@ -96,7 +100,7 @@ public class HardwareEncoderResolver
             encoder,
             "-qp",
             new[] { "-init_hw_device", "vaapi=hw:" + device, "-filter_hw_device", "hw" },
-            new[] { "-vf", "format=nv12,hwupload" });
+            VaapiFormatArgs);
     }
 
     private static EncoderSelection ResolveVideoToolbox(string codec)

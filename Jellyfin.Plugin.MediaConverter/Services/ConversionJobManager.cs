@@ -18,7 +18,7 @@ namespace Jellyfin.Plugin.MediaConverter.Services;
 /// Background service that queues, runs, and tracks media conversion jobs, honoring the
 /// configured maximum number of concurrent conversions.
 /// </summary>
-public class ConversionJobManager : IConversionJobManager, IHostedService, IDisposable
+public sealed class ConversionJobManager : IConversionJobManager, IHostedService, IDisposable
 {
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
@@ -124,7 +124,11 @@ public class ConversionJobManager : IConversionJobManager, IHostedService, IDisp
     public async Task StopAsync(CancellationToken cancellationToken)
     {
         _queue.Writer.TryComplete();
-        _stoppingSource?.Cancel();
+
+        if (_stoppingSource is not null)
+        {
+            await _stoppingSource.CancelAsync().ConfigureAwait(false);
+        }
 
         try
         {
