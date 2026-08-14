@@ -26,6 +26,23 @@ the dashboard.
 
 ## Installation
 
+### Via the plugin repository (recommended)
+
+This repo publishes itself as a Jellyfin plugin repository, so the server can
+find and auto-update the plugin on its own:
+
+1. In Jellyfin, go to **Dashboard → Plugins → Repositories → Add Repository**.
+2. Set the URL to:
+   ```
+   https://raw.githubusercontent.com/rangoDJ/jellyfin-media-converter/master/manifest.json
+   ```
+3. Go to **Catalog**, find **Media Converter**, and install it.
+
+New releases (see [Releasing](#releasing)) appear here automatically; Jellyfin
+will offer to update to them like any other plugin.
+
+### Manually
+
 Build the plugin (see below), then copy `Jellyfin.Plugin.MediaConverter.dll`
 into a `MediaConverter` subfolder of your Jellyfin server's plugin directory
 (e.g. `C:\Users\{YourUserName}\AppData\Local\jellyfin\plugins\MediaConverter`
@@ -55,6 +72,24 @@ control what the convert dialog preselects:
 | `MaxConcurrentJobs` | `1` | Maximum simultaneous conversions |
 | `TempFileSuffix` | `.mediaconverter.tmp` | Suffix for the temp file ffmpeg writes before it's swapped into place |
 | `VariantSuffixTemplate` | `{name}-{codec}{ext}` | Filename template for "create new variant" mode |
+
+## Releasing
+
+Pushing a tag matching `v*.*.*` (e.g. `v1.0.1`) triggers
+[.github/workflows/publish.yml](.github/workflows/publish.yml), which:
+
+1. Builds the plugin and packages it into a zip with [jprm](https://github.com/jellyfin/jellyfin-plugin-repository-manager).
+2. Publishes that zip to a GitHub Release for the tag.
+3. Adds an entry for the new version to [manifest.json](manifest.json) and
+   commits it back to `master` — this is the file the repository URL above
+   points at, so the update becomes visible to Jellyfin as soon as it's pushed.
+
+```bash
+git tag v1.0.1
+git push origin v1.0.1
+```
+
+Bump `version` in [build.yaml](build.yaml) to match before tagging.
 
 ## Debugging
 

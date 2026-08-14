@@ -1,0 +1,67 @@
+name: Publish
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+permissions:
+  contents: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: master
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Install jprm
+        run: pip install jprm
+
+      - name: Determine version
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build plugin package
+        run: jprm plugin build . --output ./artifacts --version "${{ steps.version.outputs.version }}"
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "v${{ steps.version.outputs.version }}"
+          tag_name: ${{ github.ref_name }}
+          files: artifacts/*.zip
+
+      - name: Update repository manifest
+        run: |
+          set -euo pipefail
+          zip_file=$(ls artifacts/*.zip)
+          zip_name=$(basename "$zip_file")
+          jprm repo add \
+            --url "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/${zip_name}" \
+            manifest.json \
+            "$zip_file"
+
+      - name: Commit updated manifest
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add manifest.json
+          if git diff --cached --quiet; then
+            echo "No manifest changes to commit"
+          else
+            git commit -m "Add v${{ steps.version.outputs.version }} to repository manifest"
+            git push origin HEAD:master
+          fi
