@@ -73,27 +73,26 @@ control what the convert dialog preselects:
 | `TempFileSuffix` | `.mediaconverter.tmp` | Suffix for the temp file ffmpeg writes before it's swapped into place |
 | `VariantSuffixTemplate` | `{name}-{codec}{ext}` | Filename template for "create new variant" mode |
 
-## Known issue: the dashboard page's JavaScript may not run
+## Notes on the config page's JavaScript
 
-On some Jellyfin web client builds (confirmed on server 12.0-rc5), the
-config-page loader strips `<script>` tags — inline or `src`-referenced —
-from a plugin's fetched config page HTML before inserting it into the SPA,
-so [browser.js](Jellyfin.Plugin.MediaConverter/Web/browser.js) never
-executes and Search/Convert/Cancel do nothing, even though the server is
-serving the correct content. Two workarounds:
+Jellyfin's web client (verified against server 12.0.0's own bundle) renders a
+plugin's config page by setting `innerHTML` on a scratch element with the
+fetched HTML, then extracting *only* `div[data-role="page"]` from it -
+anything outside that div, including a `<script>` placed as its sibling, is
+discarded before ever reaching the live DOM. Separately, it only re-executes
+`<script>` tags (via jQuery, since `innerHTML`-inserted scripts are inert by
+spec) when at least one is found *inside* that extracted div. So
+[browser.js](Jellyfin.Plugin.MediaConverter/Web/browser.js) is loaded from a
+`<script>` that is nested inside `#mediaConverterPage` itself (see
+[browser.html](Jellyfin.Plugin.MediaConverter/Web/browser.html)), not placed
+after it - putting it outside that div silently breaks Search/Convert/Cancel
+with no console error, even though the server serves the correct content.
 
-- **Open the page directly**: navigate to
-  `<your-server>/web/configurationpage?name=mediaconverter` directly in the
-  browser's address bar (not via the sidebar link). That's a genuine full
-  page load rather than an AJAX fetch-and-inject, so the script runs normally.
-- **Item detail button**: if you have a global script injector installed
-  (e.g. the [JavaScript Injector](https://github.com/JustAMan/jellyfin-plugin-js-injector)
-  plugin), paste the contents of
-  [itemdetail.js](Jellyfin.Plugin.MediaConverter/Web/itemdetail.js) into it.
-  It adds a floating **Convert** button on movie/episode detail pages that
-  calls this plugin's API directly, sidestepping the config-page issue
-  entirely since scripts loaded that way are real `<script>` tags in the
-  top-level page.
+As an alternative entry point, [itemdetail.js](Jellyfin.Plugin.MediaConverter/Web/itemdetail.js)
+is a standalone script for use with a global script injector plugin (e.g.
+[JavaScript Injector](https://github.com/JustAMan/jellyfin-plugin-js-injector)).
+It adds a floating **Convert** button directly on movie/episode detail pages
+by calling this plugin's API, without going through the config page at all.
 
 ## Releasing
 
