@@ -1,0 +1,173 @@
+using System;
+using System.Diagnostics;
+using System.Globalization;
+using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
+using MediaBrowser.Controller.MediaEncoding;
+using Microsoft.Extensions.Logging;
+
+namespace Jellyfin.Plugin.MediaConverter.Services;
+
+/// <summary>
+/// Runs a single ffmpeg conversion for a <see cref="ConversionJob"/>, reporting live progress back
+/// onto the job as the process runs.
+/// </summary>
+public class ConversionEngine
+{
+    private readonly IMediaEncoder _mediaEncoder;
+    private readonly ILogger<ConversionEngine> _logger;
+
+    /// <summary>
+    /// Initializes a new instance of the <see cref="ConversionEngine"/> class.
+    /// </summary>
+    /// <param name="mediaEncoder">Provides the path to the server's own ffmpeg binary.</param>
+    /// <param name="logger">Logger for reporting ffmpeg failures.</param>
+    public ConversionEngine(IMediaEncoder mediaEncoder, ILogger<ConversionEngine> logger)
+    {
+        _mediaEncoder = mediaEncoder;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Runs ffmpeg for the given job, updating <see cref="ConversionJob.ProgressPercent"/> as it
+    /// progresses. Throws if ffmpeg exits with a non-zero code.
+    /// </summary>
+    /// <param name="job">The job to convert.</param>
+    /// <param name="encoder">The resolved encoder to use.</param>
+    /// <param name="totalDurationTicks">The source media's total duration, in ticks, used to compute progress.</param>
+    /// <param name="cancellationToken">Token used to cancel the running ffmpeg process.</param>
+    /// <returns>A task that completes when the conversion finishes.</returns>
+    public async Task RunAsync(ConversionJob job, EncoderSelection encoder, long totalDurationTicks, CancellationToken cancellationToken)
+    {
+        ArgumentNullException.ThrowIfNull(job);
+        ArgumentNullException.ThrowIfNull(encoder);
+
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = _mediaEncoder.EncoderPath,
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        BuildArguments(startInfo, job, encoder);
+
+        using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+
+        process.OutputDataReceived += (_, args) => OnProgressLine(job, totalDurationTicks, args.Data);
+
+        var stderr = new StringBuilder();
+        process.ErrorDataReceived += (_, args) =>
+        {
+            if (args.Data is not null)
+            {
+                stderr.AppendLine(args.Data);
+            }
+        };
+
+        process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
+        try
+        {
+            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException)
+        {
+            KillProcess(process);
+            throw;
+        }
+
+        if (process.ExitCode != 0)
+        {
+            _logger.LogError("ffmpeg exited with code {ExitCode} while converting job {JobId}", process.ExitCode, job.Id);
+            throw new InvalidOperationException(
+                string.Format(CultureInfo.InvariantCulture, "ffmpeg exited with code {0}: {1}", process.ExitCode, stderr.ToString()));
+        }
+    }
+
+    private static void BuildArguments(ProcessStartInfo startInfo, ConversionJob job, EncoderSelection encoder)
+    {
+        startInfo.ArgumentList.Add("-y");
+
+        foreach (var arg in encoder.ExtraInputArgs)
+        {
+            startInfo.ArgumentList.Add(arg);
+        }
+
+        startInfo.ArgumentList.Add("-i");
+        startInfo.ArgumentList.Add(job.SourcePath);
+        startInfo.ArgumentList.Add("-map");
+        startInfo.ArgumentList.Add("0");
+
+        if (!string.IsNullOrWhiteSpace(job.Request.FfmpegArgsOverride))
+        {
+            foreach (var arg in job.Request.FfmpegArgsOverride.Split(' ', StringSplitOptions.RemoveEmptyEntries))
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-c:v");
+            startInfo.ArgumentList.Add(encoder.Encoder);
+            startInfo.ArgumentList.Add(encoder.QualityFlag);
+            startInfo.ArgumentList.Add(job.Request.Quality.ToString(CultureInfo.InvariantCulture));
+
+            foreach (var arg in encoder.ExtraOutputArgs)
+            {
+                startInfo.ArgumentList.Add(arg);
+            }
+
+            startInfo.ArgumentList.Add("-c:a");
+            startInfo.ArgumentList.Add("copy");
+            startInfo.ArgumentList.Add("-c:s");
+            startInfo.ArgumentList.Add("copy");
+        }
+
+        startInfo.ArgumentList.Add("-progress");
+        startInfo.ArgumentList.Add("pipe:1");
+        startInfo.ArgumentList.Add("-nostats");
+        startInfo.ArgumentList.Add(job.OutputPath);
+    }
+
+    private static void KillProcess(Process process)
+    {
+        try
+        {
+            if (!process.HasExited)
+            {
+                process.Kill(true);
+            }
+        }
+        catch (InvalidOperationException)
+        {
+        }
+    }
+
+    private static void OnProgressLine(ConversionJob job, long totalDurationTicks, string? line)
+    {
+        if (string.IsNullOrEmpty(line) || totalDurationTicks <= 0)
+        {
+            return;
+        }
+
+        var separatorIndex = line.IndexOf('=', StringComparison.Ordinal);
+        if (separatorIndex < 0)
+        {
+            return;
+        }
+
+        var key = line[..separatorIndex];
+        var value = line[(separatorIndex + 1)..];
+
+        if (key == "out_time_us" && long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var outTimeUs))
+        {
+            var elapsedTicks = outTimeUs * 10L;
+            job.ProgressPercent = Math.Clamp(elapsedTicks * 100d / totalDurationTicks, 0, 100);
+        }
+    }
+}

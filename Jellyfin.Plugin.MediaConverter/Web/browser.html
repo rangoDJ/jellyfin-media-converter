@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Media Converter</title>
+</head>
+<body>
+    <div id="mediaConverterPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <div data-role="content">
+            <div class="content-primary">
+                <div class="verticalSection">
+                    <h1>Media Converter</h1>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="searchTerm" label="Search library" />
+                    </div>
+                    <button is="emby-button" type="button" class="raised button-submit" id="searchButton">
+                        <span>Search</span>
+                    </button>
+                </div>
+
+                <div class="verticalSection">
+                    <h2>Results</h2>
+                    <div id="libraryResults"></div>
+                </div>
+
+                <div class="verticalSection">
+                    <h2>Jobs</h2>
+                    <div id="jobResults"></div>
+                </div>
+            </div>
+        </div>
+
+        <div id="convertDialog" style="display:none;">
+            <div class="inputContainer">
+                <label class="inputLabel" for="containerSelect">Container</label>
+                <select is="emby-select" id="containerSelect">
+                    <option value="mkv">mkv</option>
+                    <option value="mp4">mp4</option>
+                </select>
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel" for="codecSelect">Codec</label>
+                <select is="emby-select" id="codecSelect">
+                    <option value="hevc">HEVC (H.265)</option>
+                    <option value="h264">H.264</option>
+                    <option value="av1">AV1</option>
+                </select>
+            </div>
+            <div class="inputContainer">
+                <input is="emby-input" type="number" id="qualityInput" label="Quality" value="23" />
+            </div>
+            <div class="inputContainer">
+                <label class="inputLabel" for="modeSelect">Mode</label>
+                <select is="emby-select" id="modeSelect">
+                    <option value="Variant">Create new variant</option>
+                    <option value="Replace">Replace original</option>
+                </select>
+            </div>
+            <div class="inputContainer">
+                <input is="emby-input" type="text" id="ffmpegOverrideInput" label="Advanced: raw ffmpeg args (optional)" />
+            </div>
+            <button is="emby-button" type="button" class="raised button-submit" id="startConversionButton">
+                <span>Convert</span>
+            </button>
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        (function () {
+            var pluginId = 'ced1b4c4-47d1-4cd5-8d22-1491f69676ef';
+            var selectedItemId = null;
+
+            function apiGet(path) {
+                return ApiClient.getJSON(ApiClient.getUrl(path));
+            }
+
+            function apiPost(path, body) {
+                return ApiClient.ajax({
+                    type: 'POST',
+                    url: ApiClient.getUrl(path),
+                    data: JSON.stringify(body || {}),
+                    contentType: 'application/json',
+                    dataType: 'json'
+                });
+            }
+
+            function renderLibrary(page, items) {
+                var container = page.querySelector('#libraryResults');
+                container.innerHTML = '';
+
+                items.forEach(function (item) {
+                    var row = document.createElement('div');
+                    row.className = 'listItem';
+
+                    var name = document.createElement('span');
+                    name.textContent = item.Name;
+                    row.appendChild(name);
+
+                    var button = document.createElement('button');
+                    button.setAttribute('is', 'emby-button');
+                    button.className = 'raised';
+                    button.textContent = 'Convert';
+                    button.addEventListener('click', function () {
+                        selectedItemId = item.Id;
+                        page.querySelector('#convertDialog').style.display = 'block';
+                    });
+                    row.appendChild(button);
+
+                    container.appendChild(row);
+                });
+            }
+
+            function renderJobs(page, jobs) {
+                var container = page.querySelector('#jobResults');
+                container.innerHTML = '';
+
+                jobs.forEach(function (job) {
+                    var row = document.createElement('div');
+                    row.className = 'listItem';
+
+                    var label = document.createElement('span');
+                    label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
+                    row.appendChild(label);
+
+                    if (job.Status === 'Queued' || job.Status === 'Running') {
+                        var cancelButton = document.createElement('button');
+                        cancelButton.setAttribute('is', 'emby-button');
+                        cancelButton.className = 'raised';
+                        cancelButton.textContent = 'Cancel';
+                        cancelButton.addEventListener('click', function () {
+                            apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel');
+                        });
+                        row.appendChild(cancelButton);
+                    }
+
+                    container.appendChild(row);
+                });
+            }
+
+            function refreshJobs(page) {
+                apiGet('MediaConverter/Jobs').then(function (jobs) {
+                    renderJobs(page, jobs);
+                });
+            }
+
+            function search(page) {
+                var searchTerm = page.querySelector('#searchTerm').value || '';
+                apiGet('MediaConverter/Library?searchTerm=' + encodeURIComponent(searchTerm)).then(function (items) {
+                    renderLibrary(page, items);
+                });
+            }
+
+            document.addEventListener('pageshow', function (event) {
+                var page = event.target;
+                if (!page.querySelector || !page.querySelector('#mediaConverterPage')) {
+                    return;
+                }
+
+                var pageElement = page;
+
+                pageElement.querySelector('#searchButton').addEventListener('click', function () {
+                    search(pageElement);
+                });
+
+                pageElement.querySelector('#startConversionButton').addEventListener('click', function () {
+                    if (!selectedItemId) {
+                        return;
+                    }
+
+                    apiPost('MediaConverter/Convert', {
+                        ItemId: selectedItemId,
+                        Container: pageElement.querySelector('#containerSelect').value,
+                        VideoCodec: pageElement.querySelector('#codecSelect').value,
+                        Quality: parseInt(pageElement.querySelector('#qualityInput').value, 10),
+                        Mode: pageElement.querySelector('#modeSelect').value,
+                        FfmpegArgsOverride: pageElement.querySelector('#ffmpegOverrideInput').value || null
+                    }).then(function () {
+                        pageElement.querySelector('#convertDialog').style.display = 'none';
+                        refreshJobs(pageElement);
+                    });
+                });
+
+                refreshJobs(pageElement);
+                setInterval(function () {
+                    refreshJobs(pageElement);
+                }, 3000);
+            });
+        })();
+    </script>
+</body>
+</html>
