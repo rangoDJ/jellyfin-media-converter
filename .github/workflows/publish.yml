@@ -29,20 +29,31 @@ jobs:
       - name: Install Python dependencies
         run: pip install pyyaml
 
-      - name: Restore
-        run: dotnet restore Jellyfin.Plugin.MediaConverter.sln
-
-      - name: Build
-        run: dotnet build Jellyfin.Plugin.MediaConverter.sln --configuration Release --no-restore
-
       - name: Determine version and package name
         id: package
         run: |
           set -euo pipefail
-          version=${GITHUB_REF_NAME#v}
-          zip_name="jellyfin-media-converter_${version}.zip"
-          echo "version=${version}" >> "$GITHUB_OUTPUT"
-          echo "zip_name=${zip_name}" >> "$GITHUB_OUTPUT"
+          build_version=$(python3 -c "import yaml; print(yaml.safe_load(open('build.yaml'))['version'])")
+          tag_version=${GITHUB_REF_NAME#v}
+
+          # build.yaml uses 4-part versions (e.g. 1.0.1.0); tags use 3-part (e.g. v1.0.1).
+          if [ "${build_version%.0}" != "$tag_version" ] && [ "$build_version" != "$tag_version" ]; then
+            echo "::error::Tag ${GITHUB_REF_NAME} does not match build.yaml's version (${build_version}). Bump build.yaml before tagging a release."
+            exit 1
+          fi
+
+          echo "version=${build_version}" >> "$GITHUB_OUTPUT"
+          echo "zip_name=jellyfin-media-converter_${build_version}.zip" >> "$GITHUB_OUTPUT"
+
+      - name: Restore
+        run: dotnet restore Jellyfin.Plugin.MediaConverter.sln
+
+      - name: Build
+        run: |
+          dotnet build Jellyfin.Plugin.MediaConverter.sln --configuration Release --no-restore \
+            -p:Version=${{ steps.package.outputs.version }} \
+            -p:AssemblyVersion=${{ steps.package.outputs.version }} \
+            -p:FileVersion=${{ steps.package.outputs.version }}
 
       - name: Package plugin zip
         run: |
