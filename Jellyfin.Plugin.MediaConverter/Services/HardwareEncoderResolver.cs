@@ -31,7 +31,7 @@ public class HardwareEncoderResolver
     /// <returns>The resolved encoder and its extra arguments.</returns>
     public EncoderSelection Resolve(string codecFamily)
     {
-        var options = _configurationManager.GetConfiguration<EncodingOptions>("encoding");
+        var options = (EncodingOptions)_configurationManager.GetConfiguration("encoding");
         var codec = (codecFamily ?? "hevc").Trim().ToLowerInvariant();
 
         return (options.HardwareAccelerationType ?? string.Empty).ToLowerInvariant() switch
