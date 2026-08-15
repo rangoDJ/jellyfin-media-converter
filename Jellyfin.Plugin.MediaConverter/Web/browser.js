@@ -165,19 +165,47 @@
         });
     }
 
+    // When set, the "Back" button in the episodes section goes back one level (season list)
+    // instead of hiding the whole section (back to the library search results).
+    var episodesBackHandler = null;
+
+    function setBackButtonHandler(handler, label) {
+        episodesBackHandler = handler;
+        var backButton = document.getElementById('backToResultsButton');
+        var span = backButton.querySelector('span');
+        (span || backButton).textContent = label;
+    }
+
+    function groupBySeason(episodes) {
+        var seasons = {};
+        var order = [];
+        episodes.forEach(function (episode) {
+            var seasonKey = episode.SeasonNumber != null ? episode.SeasonNumber : -1;
+            if (!seasons[seasonKey]) {
+                seasons[seasonKey] = [];
+                order.push(seasonKey);
+            }
+
+            seasons[seasonKey].push(episode);
+        });
+
+        return { seasons: seasons, order: order };
+    }
+
     function browseSeries(seriesId, seriesName) {
         apiGet('MediaConverter/Series/' + seriesId + '/Episodes')
             .then(function (episodes) {
                 clearError();
-                renderEpisodes(seriesId, seriesName, episodes);
+                renderSeasonList(seriesId, seriesName, episodes);
             })
             .catch(function (error) {
                 showError('Loading episodes', error);
             });
     }
 
-    function renderEpisodes(seriesId, seriesName, episodes) {
+    function renderSeasonList(seriesId, seriesName, episodes) {
         document.getElementById('episodesSeriesName').textContent = '- ' + seriesName;
+        setBackButtonHandler(null, 'Back to results');
 
         var container = document.getElementById('episodeResults');
         container.innerHTML = '';
@@ -202,62 +230,87 @@
         convertAllRow.appendChild(convertAllButton);
         container.appendChild(convertAllRow);
 
-        var seasons = {};
-        var seasonOrder = [];
-        episodes.forEach(function (episode) {
-            var seasonKey = episode.SeasonNumber != null ? episode.SeasonNumber : -1;
-            if (!seasons[seasonKey]) {
-                seasons[seasonKey] = [];
-                seasonOrder.push(seasonKey);
-            }
+        var grouped = groupBySeason(episodes);
 
-            seasons[seasonKey].push(episode);
-        });
+        grouped.order.forEach(function (seasonKey) {
+            var seasonEpisodes = grouped.seasons[seasonKey];
 
-        seasonOrder.forEach(function (seasonKey) {
-            var seasonEpisodes = seasons[seasonKey];
+            var row = document.createElement('div');
+            row.className = 'listItem';
 
-            var seasonHeader = document.createElement('div');
-            seasonHeader.className = 'listItem';
+            var label = document.createElement('span');
+            var seasonName = seasonKey === -1 ? 'No season' : 'Season ' + seasonKey;
+            label.textContent = seasonName + ' (' + seasonEpisodes.length + ' episode' + (seasonEpisodes.length === 1 ? '' : 's') + ')';
+            row.appendChild(label);
 
-            var seasonLabel = document.createElement('h3');
-            seasonLabel.textContent = seasonKey === -1 ? 'No season' : 'Season ' + seasonKey;
-            seasonHeader.appendChild(seasonLabel);
+            var viewButton = document.createElement('button');
+            viewButton.setAttribute('is', 'emby-button');
+            viewButton.className = 'raised';
+            viewButton.textContent = 'View episodes';
+            viewButton.addEventListener('click', function () {
+                renderSeasonEpisodes(seriesId, seriesName, seasonKey, seasonName, seasonEpisodes, episodes);
+            });
+            row.appendChild(viewButton);
 
             var convertSeasonButton = document.createElement('button');
             convertSeasonButton.setAttribute('is', 'emby-button');
             convertSeasonButton.className = 'raised';
             convertSeasonButton.textContent = 'Convert this season';
             convertSeasonButton.addEventListener('click', function () {
-                openConvertDialog(seasonEpisodes.map(function (e) { return e.Id; }), seriesName + ' – Season ' + seasonKey);
+                openConvertDialog(seasonEpisodes.map(function (e) { return e.Id; }), seriesName + ' – ' + seasonName);
             });
-            seasonHeader.appendChild(convertSeasonButton);
-            container.appendChild(seasonHeader);
+            row.appendChild(convertSeasonButton);
 
-            seasonEpisodes.forEach(function (episode) {
-                var row = document.createElement('div');
-                row.className = 'listItem';
+            container.appendChild(row);
+        });
 
-                var label = document.createElement('span');
-                var seasonEpisode = (episode.SeasonNumber != null && episode.EpisodeNumber != null)
-                    ? 'S' + episode.SeasonNumber + 'E' + episode.EpisodeNumber + ' - '
-                    : '';
-                label.textContent = seasonEpisode + episode.Name;
-                row.appendChild(label);
+        document.getElementById('episodesSection').style.display = 'block';
+    }
 
-                appendStatsSpan(row, episode.Id);
+    function renderSeasonEpisodes(seriesId, seriesName, seasonKey, seasonName, seasonEpisodes, allEpisodes) {
+        document.getElementById('episodesSeriesName').textContent = '- ' + seriesName + ', ' + seasonName;
+        setBackButtonHandler(function () {
+            renderSeasonList(seriesId, seriesName, allEpisodes);
+        }, 'Back to seasons');
 
-                var button = document.createElement('button');
-                button.setAttribute('is', 'emby-button');
-                button.className = 'raised';
-                button.textContent = 'Convert';
-                button.addEventListener('click', function () {
-                    openConvertDialog([episode.Id], episode.Name);
-                });
-                row.appendChild(button);
+        var container = document.getElementById('episodeResults');
+        container.innerHTML = '';
 
-                container.appendChild(row);
+        var convertSeasonRow = document.createElement('div');
+        convertSeasonRow.className = 'listItem';
+        var convertSeasonButton = document.createElement('button');
+        convertSeasonButton.setAttribute('is', 'emby-button');
+        convertSeasonButton.className = 'raised';
+        convertSeasonButton.textContent = 'Convert all ' + seasonEpisodes.length + ' episodes in this season';
+        convertSeasonButton.addEventListener('click', function () {
+            openConvertDialog(seasonEpisodes.map(function (e) { return e.Id; }), seriesName + ' – ' + seasonName);
+        });
+        convertSeasonRow.appendChild(convertSeasonButton);
+        container.appendChild(convertSeasonRow);
+
+        seasonEpisodes.forEach(function (episode) {
+            var row = document.createElement('div');
+            row.className = 'listItem';
+
+            var label = document.createElement('span');
+            var seasonEpisode = (episode.SeasonNumber != null && episode.EpisodeNumber != null)
+                ? 'S' + episode.SeasonNumber + 'E' + episode.EpisodeNumber + ' - '
+                : '';
+            label.textContent = seasonEpisode + episode.Name;
+            row.appendChild(label);
+
+            appendStatsSpan(row, episode.Id);
+
+            var button = document.createElement('button');
+            button.setAttribute('is', 'emby-button');
+            button.className = 'raised';
+            button.textContent = 'Convert';
+            button.addEventListener('click', function () {
+                openConvertDialog([episode.Id], episode.Name);
             });
+            row.appendChild(button);
+
+            container.appendChild(row);
         });
 
         document.getElementById('episodesSection').style.display = 'block';
@@ -406,7 +459,11 @@
         document.getElementById('searchButton').addEventListener('click', search);
 
         document.getElementById('backToResultsButton').addEventListener('click', function () {
-            document.getElementById('episodesSection').style.display = 'none';
+            if (episodesBackHandler) {
+                episodesBackHandler();
+            } else {
+                document.getElementById('episodesSection').style.display = 'none';
+            }
         });
 
         document.getElementById('startConversionButton').addEventListener('click', function () {
