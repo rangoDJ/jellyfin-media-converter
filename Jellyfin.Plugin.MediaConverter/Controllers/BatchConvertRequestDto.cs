@@ -11,7 +11,7 @@ namespace Jellyfin.Plugin.MediaConverter.Controllers;
 public class BatchConvertRequestDto
 {
     /// <summary>
-    /// Gets or sets the library item ids of the source videos to convert.
+    /// Gets the library item ids of the source videos to convert.
     /// </summary>
     public IList<Guid> ItemIds { get; init; } = new List<Guid>();
 
