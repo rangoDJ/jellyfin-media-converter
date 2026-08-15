@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.9.0"
+version: "1.0.10.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,11 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.10: The series episode browser now lists seasons first (with
+  episode counts) instead of dumping every episode from every season
+  into one long scrolling list. Click a season to see just its
+  episodes, with a "Back to seasons" step before returning to the
+  search results - much more usable for shows with many episodes.
   1.0.9: The convert dialog now exposes audio codec/bitrate, subtitle
   handling (copy/drop), output resolution scaling, and encoder
   preset/speed, instead of always copying audio/subtitles and only
