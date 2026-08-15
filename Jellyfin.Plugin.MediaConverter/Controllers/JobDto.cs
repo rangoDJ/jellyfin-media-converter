@@ -22,6 +22,8 @@ public class JobDto
         ErrorMessage = job.ErrorMessage;
         SourcePath = job.SourcePath;
         OutputPath = job.OutputPath;
+        Mode = job.Request.Mode;
+        VariantResolution = job.VariantResolution;
     }
 
     /// <summary>
@@ -53,4 +55,15 @@ public class JobDto
     /// Gets the path the converted file is written to.
     /// </summary>
     public string OutputPath { get; }
+
+    /// <summary>
+    /// Gets whether the original file is replaced or a new variant was created.
+    /// </summary>
+    public ConversionMode Mode { get; }
+
+    /// <summary>
+    /// Gets whether a "create new variant" job's original/variant pair still needs a manual
+    /// keep/delete decision.
+    /// </summary>
+    public VariantResolution VariantResolution { get; }
 }

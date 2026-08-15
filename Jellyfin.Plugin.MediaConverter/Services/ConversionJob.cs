@@ -21,6 +21,7 @@ public class ConversionJob
         OutputPath = outputPath;
         Status = ConversionJobStatus.Queued;
         CreatedAt = DateTime.UtcNow;
+        VariantResolution = request.Mode == ConversionMode.Variant ? VariantResolution.PendingReview : VariantResolution.NotApplicable;
     }
 
     /// <summary>
@@ -62,4 +63,11 @@ public class ConversionJob
     /// Gets the UTC time the job was created.
     /// </summary>
     public DateTime CreatedAt { get; }
+
+    /// <summary>
+    /// Gets or sets whether a "create new variant" job's original/variant pair still needs a
+    /// manual keep/delete decision. Always <see cref="VariantResolution.NotApplicable"/> for
+    /// "Replace original" jobs.
+    /// </summary>
+    public VariantResolution VariantResolution { get; set; }
 }

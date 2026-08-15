@@ -107,6 +107,47 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     }
 
     /// <inheritdoc />
+    public VariantResolveOutcome ResolveKeepVariant(Guid jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+        {
+            return VariantResolveOutcome.JobNotFound;
+        }
+
+        if (job.VariantResolution != VariantResolution.PendingReview || job.Status != ConversionJobStatus.Completed)
+        {
+            return VariantResolveOutcome.NotEligible;
+        }
+
+        var item = _libraryManager.GetItemById(job.Request.ItemId) as Video
+            ?? throw new InvalidOperationException("The requested item was not found or is not a video.");
+
+        FinalizeReplace(item, job);
+        job.VariantResolution = VariantResolution.KeptVariant;
+
+        _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(_directoryService), RefreshPriority.High);
+        return VariantResolveOutcome.Success;
+    }
+
+    /// <inheritdoc />
+    public VariantResolveOutcome ResolveKeepOriginal(Guid jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+        {
+            return VariantResolveOutcome.JobNotFound;
+        }
+
+        if (job.VariantResolution != VariantResolution.PendingReview || job.Status != ConversionJobStatus.Completed)
+        {
+            return VariantResolveOutcome.NotEligible;
+        }
+
+        TryDeleteFile(job.OutputPath);
+        job.VariantResolution = VariantResolution.KeptOriginal;
+        return VariantResolveOutcome.Success;
+    }
+
+    /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         _stoppingSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);

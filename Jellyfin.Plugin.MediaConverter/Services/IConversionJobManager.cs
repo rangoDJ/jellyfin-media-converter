@@ -34,4 +34,19 @@ public interface IConversionJobManager
     /// <param name="jobId">The job id.</param>
     /// <returns><see langword="true"/> if the job was found and cancellation was requested.</returns>
     bool CancelJob(Guid jobId);
+
+    /// <summary>
+    /// Resolves a pending variant decision by promoting the new variant: it replaces the original
+    /// file at its path (the same swap "Replace original" mode performs), and the original is deleted.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>The outcome of the attempt.</returns>
+    VariantResolveOutcome ResolveKeepVariant(Guid jobId);
+
+    /// <summary>
+    /// Resolves a pending variant decision by keeping the original file and deleting the new variant.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>The outcome of the attempt.</returns>
+    VariantResolveOutcome ResolveKeepOriginal(Guid jobId);
 }
