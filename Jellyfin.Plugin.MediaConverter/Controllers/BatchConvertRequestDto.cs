@@ -13,7 +13,7 @@ public class BatchConvertRequestDto
     /// <summary>
     /// Gets or sets the library item ids of the source videos to convert.
     /// </summary>
-    public IList<Guid> ItemIds { get; set; } = new List<Guid>();
+    public IList<Guid> ItemIds { get; init; } = new List<Guid>();
 
     /// <summary>
     /// Gets or sets the output container extension (without the leading dot), e.g. "mkv".

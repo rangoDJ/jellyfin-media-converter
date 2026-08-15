@@ -128,7 +128,7 @@ public class MediaConverterController : ControllerBase
         try
         {
             var probePath = Path.Combine(directoryPath, ".mediaconverter-writetest-" + Guid.NewGuid().ToString("N") + ".tmp");
-            using (File.Create(probePath, 1, FileOptions.DeleteOnClose))
+            using (System.IO.File.Create(probePath, 1, FileOptions.DeleteOnClose))
             {
             }
 
