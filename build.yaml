@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.8.0"
+version: "1.0.9.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,19 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.9: The convert dialog now exposes audio codec/bitrate, subtitle
+  handling (copy/drop), output resolution scaling, and encoder
+  preset/speed, instead of always copying audio/subtitles and only
+  letting you choose container, codec, and quality. You can also
+  convert an entire season or series in one action instead of one
+  item at a time. Each movie/episode row now shows its codec,
+  resolution, audio, and file size, read live via ffprobe rather than
+  Jellyfin's own library metadata. "Create new variant" jobs let you
+  compare the original and new file's ffprobe stats side by side once
+  finished, then choose which one to keep/delete. Conversions are now
+  rejected up front with a clear message if the destination folder
+  isn't writable by the server process, instead of failing partway
+  through the job.
   1.0.8: Fixed conversion progress staying frozen at 0% for the whole
   job. Progress calculation was silently skipped whenever the library
   item's RunTimeTicks metadata was missing (common for freshly-added
