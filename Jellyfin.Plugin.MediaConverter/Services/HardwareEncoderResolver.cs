@@ -11,7 +11,8 @@ namespace Jellyfin.Plugin.MediaConverter.Services;
 public class HardwareEncoderResolver
 {
     private static readonly string[] QsvInitArgs = { "-init_hw_device", "qsv=hw", "-filter_hw_device", "hw" };
-    private static readonly string[] VaapiFormatArgs = { "-vf", "format=nv12,hwupload" };
+    private static readonly string[] VaapiRequiredFilters = { "format=nv12", "hwupload" };
+    private static readonly string[] NoFilters = Array.Empty<string>();
 
     private readonly IServerConfigurationManager _configurationManager;
 
@@ -58,7 +59,9 @@ public class HardwareEncoderResolver
             encoder,
             "-global_quality",
             QsvInitArgs,
-            Array.Empty<string>());
+            Array.Empty<string>(),
+            NoFilters,
+            supportsPreset: true);
     }
 
     private static EncoderSelection ResolveNvenc(string codec)
@@ -70,7 +73,7 @@ public class HardwareEncoderResolver
             _ => "hevc_nvenc"
         };
 
-        return new EncoderSelection(encoder, "-cq", Array.Empty<string>(), Array.Empty<string>());
+        return new EncoderSelection(encoder, "-cq", Array.Empty<string>(), Array.Empty<string>(), NoFilters, supportsPreset: true);
     }
 
     private static EncoderSelection ResolveAmf(string codec)
@@ -82,7 +85,7 @@ public class HardwareEncoderResolver
             _ => "hevc_amf"
         };
 
-        return new EncoderSelection(encoder, "-qp_i", Array.Empty<string>(), Array.Empty<string>());
+        return new EncoderSelection(encoder, "-qp_i", Array.Empty<string>(), Array.Empty<string>(), NoFilters, supportsPreset: false);
     }
 
     private static EncoderSelection ResolveVaapi(string codec, string? vaapiDevice)
@@ -100,14 +103,16 @@ public class HardwareEncoderResolver
             encoder,
             "-qp",
             new[] { "-init_hw_device", "vaapi=hw:" + device, "-filter_hw_device", "hw" },
-            VaapiFormatArgs);
+            Array.Empty<string>(),
+            VaapiRequiredFilters,
+            supportsPreset: false);
     }
 
     private static EncoderSelection ResolveVideoToolbox(string codec)
     {
         var encoder = codec == "h264" ? "h264_videotoolbox" : "hevc_videotoolbox";
 
-        return new EncoderSelection(encoder, "-q:v", Array.Empty<string>(), Array.Empty<string>());
+        return new EncoderSelection(encoder, "-q:v", Array.Empty<string>(), Array.Empty<string>(), NoFilters, supportsPreset: false);
     }
 
     private static EncoderSelection ResolveSoftware(string codec)
@@ -119,6 +124,6 @@ public class HardwareEncoderResolver
             _ => "libx265"
         };
 
-        return new EncoderSelection(encoder, "-crf", Array.Empty<string>(), Array.Empty<string>());
+        return new EncoderSelection(encoder, "-crf", Array.Empty<string>(), Array.Empty<string>(), NoFilters, supportsPreset: true);
     }
 }

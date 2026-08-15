@@ -189,12 +189,20 @@
                 return;
             }
 
+            var audioBitrateValue = document.getElementById('audioBitrateInput').value;
+            var resolutionValue = document.getElementById('resolutionSelect').value;
+
             apiPost('MediaConverter/Convert', {
                 ItemId: selectedItemId,
                 Container: document.getElementById('containerSelect').value,
                 VideoCodec: document.getElementById('codecSelect').value,
                 Quality: parseInt(document.getElementById('qualityInput').value, 10),
                 Mode: document.getElementById('modeSelect').value,
+                Preset: document.getElementById('presetSelect').value || null,
+                ScaleHeight: resolutionValue ? parseInt(resolutionValue, 10) : null,
+                AudioCodec: document.getElementById('audioCodecSelect').value,
+                AudioBitrateKbps: audioBitrateValue ? parseInt(audioBitrateValue, 10) : null,
+                SubtitleMode: document.getElementById('subtitleModeSelect').value,
                 FfmpegArgsOverride: document.getElementById('ffmpegOverrideInput').value || null
             }).then(function () {
                 clearError();

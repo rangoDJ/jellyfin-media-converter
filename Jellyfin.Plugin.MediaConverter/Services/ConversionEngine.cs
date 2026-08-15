@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
 using System.Text;
@@ -158,15 +159,50 @@ public class ConversionEngine
             startInfo.ArgumentList.Add(encoder.QualityFlag);
             startInfo.ArgumentList.Add(job.Request.Quality.ToString(CultureInfo.InvariantCulture));
 
+            if (!string.IsNullOrWhiteSpace(job.Request.Preset) && encoder.SupportsPreset)
+            {
+                startInfo.ArgumentList.Add("-preset");
+                startInfo.ArgumentList.Add(job.Request.Preset);
+            }
+
+            var filters = new List<string>();
+            if (job.Request.ScaleHeight is > 0)
+            {
+                filters.Add("scale=-2:" + job.Request.ScaleHeight.Value.ToString(CultureInfo.InvariantCulture));
+            }
+
+            filters.AddRange(encoder.RequiredVideoFilters);
+
+            if (filters.Count > 0)
+            {
+                startInfo.ArgumentList.Add("-vf");
+                startInfo.ArgumentList.Add(string.Join(',', filters));
+            }
+
             foreach (var arg in encoder.ExtraOutputArgs)
             {
                 startInfo.ArgumentList.Add(arg);
             }
 
+            var audioCodec = string.IsNullOrWhiteSpace(job.Request.AudioCodec) ? "copy" : job.Request.AudioCodec;
             startInfo.ArgumentList.Add("-c:a");
-            startInfo.ArgumentList.Add("copy");
-            startInfo.ArgumentList.Add("-c:s");
-            startInfo.ArgumentList.Add("copy");
+            startInfo.ArgumentList.Add(audioCodec);
+
+            if (!string.Equals(audioCodec, "copy", StringComparison.OrdinalIgnoreCase) && job.Request.AudioBitrateKbps is > 0)
+            {
+                startInfo.ArgumentList.Add("-b:a");
+                startInfo.ArgumentList.Add(job.Request.AudioBitrateKbps.Value.ToString(CultureInfo.InvariantCulture) + "k");
+            }
+
+            if (job.Request.SubtitleMode == SubtitleMode.None)
+            {
+                startInfo.ArgumentList.Add("-sn");
+            }
+            else
+            {
+                startInfo.ArgumentList.Add("-c:s");
+                startInfo.ArgumentList.Add("copy");
+            }
         }
 
         startInfo.ArgumentList.Add("-progress");

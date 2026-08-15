@@ -115,6 +115,11 @@ public class MediaConverterController : ControllerBase
             VideoCodec = request.VideoCodec,
             Quality = request.Quality,
             Mode = request.Mode,
+            Preset = request.Preset,
+            ScaleHeight = request.ScaleHeight,
+            AudioCodec = request.AudioCodec,
+            AudioBitrateKbps = request.AudioBitrateKbps,
+            SubtitleMode = request.SubtitleMode,
             FfmpegArgsOverride = request.FfmpegArgsOverride
         };
 

@@ -35,6 +35,35 @@ public class ConversionRequest
     public ConversionMode Mode { get; set; } = ConversionMode.Variant;
 
     /// <summary>
+    /// Gets or sets the encoder preset/speed (e.g. "veryfast", "medium", "slow"), when the resolved
+    /// encoder supports one. Ignored for encoders that don't (e.g. VAAPI, VideoToolbox).
+    /// </summary>
+    public string? Preset { get; set; }
+
+    /// <summary>
+    /// Gets or sets the target height in pixels to scale the video to, preserving aspect ratio.
+    /// Null or 0 leaves the source resolution untouched.
+    /// </summary>
+    public int? ScaleHeight { get; set; }
+
+    /// <summary>
+    /// Gets or sets the audio encoder to use, e.g. "aac", "ac3", "libopus", "flac". "copy" (the
+    /// default) passes the source audio streams through unchanged.
+    /// </summary>
+    public string AudioCodec { get; set; } = "copy";
+
+    /// <summary>
+    /// Gets or sets the audio bitrate in kbps, applied only when <see cref="AudioCodec"/> is not "copy".
+    /// Null lets ffmpeg pick the encoder's default.
+    /// </summary>
+    public int? AudioBitrateKbps { get; set; }
+
+    /// <summary>
+    /// Gets or sets how subtitle streams are handled in the output.
+    /// </summary>
+    public SubtitleMode SubtitleMode { get; set; } = SubtitleMode.Copy;
+
+    /// <summary>
     /// Gets or sets an optional raw ffmpeg argument string that, when set, replaces the generated
     /// video-encoding arguments entirely for advanced users.
     /// </summary>
