@@ -834,6 +834,14 @@
         if (job.Status === 'Running') {
             row.appendChild(buildProgressBar(job.ProgressPercent));
         } else if (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview') {
+            var selectCheckbox = document.createElement('input');
+            selectCheckbox.type = 'checkbox';
+            selectCheckbox.className = 'mcVariantCheckbox';
+            selectCheckbox.setAttribute('data-job-id', job.Id);
+            selectCheckbox.title = 'Select for a bulk keep/delete action below';
+            selectCheckbox.style.marginLeft = '8px';
+            row.appendChild(selectCheckbox);
+
             var compareButton = document.createElement('button');
             compareButton.setAttribute('is', 'emby-button');
             compareButton.className = 'raised';
@@ -900,6 +908,69 @@
         }
 
         return { row: row, resultsBox: resultsBox };
+    }
+
+    function getSelectedVariantJobIds() {
+        return Array.prototype.slice.call(document.querySelectorAll('.mcVariantCheckbox:checked'))
+            .map(function (checkbox) {
+                return checkbox.getAttribute('data-job-id');
+            });
+    }
+
+    function bulkResolveVariants(action, confirmMessage) {
+        var jobIds = getSelectedVariantJobIds();
+        if (!jobIds.length) {
+            showError('Bulk action', { message: 'No jobs selected. Check the boxes next to the jobs you want to apply this to.' });
+            return;
+        }
+
+        if (!window.confirm(confirmMessage + ' (' + jobIds.length + ' job' + (jobIds.length === 1 ? '' : 's') + ')')) {
+            return;
+        }
+
+        Promise.all(jobIds.map(function (jobId) {
+            return apiPostNoContent('MediaConverter/Jobs/' + jobId + '/' + action);
+        })).then(function () {
+            clearError();
+            refreshJobs();
+        }).catch(function (error) {
+            showError('Bulk action', error);
+            refreshJobs();
+        });
+    }
+
+    function buildBulkActionsBar() {
+        var bar = document.createElement('div');
+        bar.style.display = 'flex';
+        bar.style.flexWrap = 'wrap';
+        bar.style.gap = '8px';
+        bar.style.marginBottom = '8px';
+
+        var hint = document.createElement('span');
+        hint.style.opacity = '0.7';
+        hint.style.marginRight = '8px';
+        hint.textContent = 'Check the box on one or more pending jobs below, then:';
+        bar.appendChild(hint);
+
+        var keepVariantButton = document.createElement('button');
+        keepVariantButton.setAttribute('is', 'emby-button');
+        keepVariantButton.className = 'raised';
+        keepVariantButton.textContent = 'Keep selected as new variants';
+        keepVariantButton.addEventListener('click', function () {
+            bulkResolveVariants('KeepVariant', 'Delete the original file and keep the new variant for every selected job?');
+        });
+        bar.appendChild(keepVariantButton);
+
+        var keepOriginalButton = document.createElement('button');
+        keepOriginalButton.setAttribute('is', 'emby-button');
+        keepOriginalButton.className = 'raised';
+        keepOriginalButton.textContent = 'Keep selected as originals';
+        keepOriginalButton.addEventListener('click', function () {
+            bulkResolveVariants('KeepOriginal', 'Delete the new variant and keep the original file for every selected job?');
+        });
+        bar.appendChild(keepOriginalButton);
+
+        return bar;
     }
 
     function jobSignature(job) {
@@ -972,6 +1043,8 @@
     }
 
     function init() {
+        document.getElementById('jobsBulkActions').appendChild(buildBulkActionsBar());
+
         document.getElementById('searchButton').addEventListener('click', search);
 
         document.getElementById('backToResultsButton').addEventListener('click', function () {
