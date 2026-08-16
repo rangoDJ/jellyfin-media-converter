@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -361,6 +362,12 @@ public class MediaConverterController : ControllerBase
         return job is null ? NotFound() : StreamFile(job.OutputPath);
     }
 
+    [SuppressMessage(
+        "Security",
+        "CA3003:Review code for file path injection vulnerabilities",
+        Justification = "path is not built from user input - it's a job's SourcePath/OutputPath, resolved and " +
+            "stored server-side when the job was enqueued. The caller's Guid jobId is only ever used as a " +
+            "dictionary lookup key to find that job, never concatenated into a path.")]
     private static ActionResult StreamFile(string path)
     {
         return System.IO.File.Exists(path)
