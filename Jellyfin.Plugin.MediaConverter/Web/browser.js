@@ -509,6 +509,74 @@
         document.getElementById('episodesSection').style.display = 'block';
     }
 
+    function buildSideBySidePlayers(job) {
+        var wrapper = document.createElement('div');
+        wrapper.style.display = 'flex';
+        wrapper.style.flexWrap = 'wrap';
+        wrapper.style.gap = '12px';
+        wrapper.style.marginTop = '8px';
+
+        function buildPlayerBlock(labelText, streamPath) {
+            var block = document.createElement('div');
+            block.style.flex = '1 1 280px';
+            block.style.maxWidth = '400px';
+
+            var label = document.createElement('div');
+            label.textContent = labelText;
+            label.style.marginBottom = '4px';
+            block.appendChild(label);
+
+            var video = document.createElement('video');
+            video.controls = true;
+            video.preload = 'metadata';
+            video.style.width = '100%';
+            video.style.background = '#000';
+            video.src = ApiClient.getUrl(streamPath);
+            block.appendChild(video);
+
+            return { block: block, video: video };
+        }
+
+        var originalPlayer = buildPlayerBlock('Original', 'MediaConverter/Jobs/' + job.Id + '/Stream/Original');
+        var variantPlayer = buildPlayerBlock('New variant', 'MediaConverter/Jobs/' + job.Id + '/Stream/Variant');
+
+        wrapper.appendChild(originalPlayer.block);
+        wrapper.appendChild(variantPlayer.block);
+
+        var controlsRow = document.createElement('div');
+        controlsRow.style.width = '100%';
+
+        var restartButton = document.createElement('button');
+        restartButton.setAttribute('is', 'emby-button');
+        restartButton.className = 'raised';
+        restartButton.textContent = 'Restart both & play';
+        restartButton.addEventListener('click', function () {
+            [originalPlayer.video, variantPlayer.video].forEach(function (video) {
+                video.currentTime = 0;
+            });
+            [originalPlayer.video.play(), variantPlayer.video.play()].forEach(function (playPromise) {
+                if (playPromise && playPromise.catch) {
+                    playPromise.catch(function () {});
+                }
+            });
+        });
+        controlsRow.appendChild(restartButton);
+
+        var pauseButton = document.createElement('button');
+        pauseButton.setAttribute('is', 'emby-button');
+        pauseButton.className = 'raised';
+        pauseButton.textContent = 'Pause both';
+        pauseButton.addEventListener('click', function () {
+            originalPlayer.video.pause();
+            variantPlayer.video.pause();
+        });
+        controlsRow.appendChild(pauseButton);
+
+        wrapper.appendChild(controlsRow);
+
+        return wrapper;
+    }
+
     function renderVariantComparison(container, job, compare) {
         container.innerHTML = '';
 
@@ -519,6 +587,35 @@
         var variantBlock = document.createElement('div');
         variantBlock.textContent = 'New variant: ' + formatMediaInfo(compare.Variant);
         container.appendChild(variantBlock);
+
+        var playButton = document.createElement('button');
+        playButton.setAttribute('is', 'emby-button');
+        playButton.className = 'raised';
+        playButton.style.marginTop = '4px';
+        playButton.textContent = 'Play side by side';
+
+        var playersContainer = document.createElement('div');
+        playersContainer.style.display = 'none';
+
+        playButton.addEventListener('click', function () {
+            var isHidden = playersContainer.style.display === 'none';
+            if (isHidden) {
+                if (!playersContainer.hasChildNodes()) {
+                    playersContainer.appendChild(buildSideBySidePlayers(job));
+                }
+                playersContainer.style.display = 'block';
+                playButton.textContent = 'Hide players';
+            } else {
+                playersContainer.querySelectorAll('video').forEach(function (video) {
+                    video.pause();
+                });
+                playersContainer.style.display = 'none';
+                playButton.textContent = 'Play side by side';
+            }
+        });
+
+        container.appendChild(playButton);
+        container.appendChild(playersContainer);
 
         var keepVariantButton = document.createElement('button');
         keepVariantButton.setAttribute('is', 'emby-button');
@@ -616,39 +713,82 @@
         return track;
     }
 
+    function buildJobRow(job) {
+        var row = document.createElement('div');
+        row.className = 'listItem';
+
+        var label = document.createElement('span');
+        label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
+        row.appendChild(label);
+
+        if (job.Status === 'Running') {
+            row.appendChild(buildProgressBar(job.ProgressPercent));
+        }
+
+        if (job.Status === 'Queued' || job.Status === 'Running') {
+            var cancelButton = document.createElement('button');
+            cancelButton.setAttribute('is', 'emby-button');
+            cancelButton.className = 'raised';
+            cancelButton.textContent = 'Cancel';
+            cancelButton.addEventListener('click', function () {
+                apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
+                    showError('Cancelling job', error);
+                });
+            });
+            row.appendChild(cancelButton);
+        }
+
+        return row;
+    }
+
+    function jobSignature(job) {
+        return [job.Status, Math.round(job.ProgressPercent), job.VariantResolution].join('|');
+    }
+
+    // Keyed by job id: { signature, row, panel }. Reused across polls so that a job whose data
+    // hasn't changed (e.g. a completed job awaiting a variant decision) keeps its existing DOM -
+    // rebuilding it every poll was wiping out the comparison results panel and would also reset
+    // any embedded <video> players.
+    var jobRenderCache = {};
+
     function renderJobs(jobs) {
         var container = document.getElementById('jobResults');
-        container.innerHTML = '';
+        var seenIds = {};
 
         jobs.forEach(function (job) {
-            var row = document.createElement('div');
-            row.className = 'listItem';
+            seenIds[job.Id] = true;
+            var signature = jobSignature(job);
+            var cached = jobRenderCache[job.Id];
 
-            var label = document.createElement('span');
-            label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
-            row.appendChild(label);
+            if (!cached || cached.signature !== signature) {
+                if (cached) {
+                    cached.row.remove();
+                    if (cached.panel) {
+                        cached.panel.remove();
+                    }
+                }
 
-            if (job.Status === 'Running') {
-                row.appendChild(buildProgressBar(job.ProgressPercent));
+                var panel = (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview')
+                    ? buildVariantReviewPanel(job)
+                    : null;
+
+                cached = { signature: signature, row: buildJobRow(job), panel: panel };
+                jobRenderCache[job.Id] = cached;
             }
 
-            if (job.Status === 'Queued' || job.Status === 'Running') {
-                var cancelButton = document.createElement('button');
-                cancelButton.setAttribute('is', 'emby-button');
-                cancelButton.className = 'raised';
-                cancelButton.textContent = 'Cancel';
-                cancelButton.addEventListener('click', function () {
-                    apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
-                        showError('Cancelling job', error);
-                    });
-                });
-                row.appendChild(cancelButton);
+            container.appendChild(cached.row);
+            if (cached.panel) {
+                container.appendChild(cached.panel);
             }
+        });
 
-            container.appendChild(row);
-
-            if (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview') {
-                container.appendChild(buildVariantReviewPanel(job));
+        Object.keys(jobRenderCache).forEach(function (id) {
+            if (!seenIds[id]) {
+                jobRenderCache[id].row.remove();
+                if (jobRenderCache[id].panel) {
+                    jobRenderCache[id].panel.remove();
+                }
+                delete jobRenderCache[id];
             }
         });
     }

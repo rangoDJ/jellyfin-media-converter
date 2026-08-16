@@ -331,6 +331,56 @@ public class MediaConverterController : ControllerBase
         return ToActionResult(_jobManager.ResolveKeepOriginal(jobId));
     }
 
+    /// <summary>
+    /// Streams a variant job's original source file for in-browser playback/preview, supporting
+    /// HTTP range requests so the video element can seek.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>The file stream, or 404 if the job or its source file no longer exists.</returns>
+    [HttpGet("Jobs/{jobId}/Stream/Original")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult StreamOriginal([FromRoute] Guid jobId)
+    {
+        var job = _jobManager.GetJob(jobId);
+        return job is null ? NotFound() : StreamFile(job.SourcePath);
+    }
+
+    /// <summary>
+    /// Streams a variant job's new output file for in-browser playback/preview, supporting HTTP
+    /// range requests so the video element can seek.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>The file stream, or 404 if the job or its output file no longer exists.</returns>
+    [HttpGet("Jobs/{jobId}/Stream/Variant")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult StreamVariant([FromRoute] Guid jobId)
+    {
+        var job = _jobManager.GetJob(jobId);
+        return job is null ? NotFound() : StreamFile(job.OutputPath);
+    }
+
+    private static ActionResult StreamFile(string path)
+    {
+        return System.IO.File.Exists(path)
+            ? new PhysicalFileResult(path, GetVideoContentType(path)) { EnableRangeProcessing = true }
+            : new NotFoundResult();
+    }
+
+    private static string GetVideoContentType(string path)
+    {
+        return Path.GetExtension(path).TrimStart('.').ToLowerInvariant() switch
+        {
+            "mp4" or "m4v" => "video/mp4",
+            "mkv" => "video/x-matroska",
+            "webm" => "video/webm",
+            "mov" => "video/quicktime",
+            "avi" => "video/x-msvideo",
+            _ => "application/octet-stream"
+        };
+    }
+
     private ActionResult ToActionResult(VariantResolveOutcome outcome)
     {
         return outcome switch
