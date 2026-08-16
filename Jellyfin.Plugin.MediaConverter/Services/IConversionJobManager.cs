@@ -49,4 +49,11 @@ public interface IConversionJobManager
     /// <param name="jobId">The job id.</param>
     /// <returns>The outcome of the attempt.</returns>
     VariantResolveOutcome ResolveKeepOriginal(Guid jobId);
+
+    /// <summary>
+    /// Removes a finished job from history. Queued or running jobs must be cancelled first.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>The outcome of the attempt.</returns>
+    RemoveJobOutcome RemoveJob(Guid jobId);
 }

@@ -173,7 +173,7 @@ public class MediaConverterController : ControllerBase
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<JobDto> Convert([FromBody] ConvertRequestDto request)
+    public async Task<ActionResult<JobDto>> Convert([FromBody] ConvertRequestDto request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -192,14 +192,16 @@ public class MediaConverterController : ControllerBase
             return BadRequest(writabilityError);
         }
 
+        var (rateControlMode, videoBitrateKbps) = await ResolveRateControlAsync(request.RateControlMode, request.VideoBitrateKbps, item.Path, cancellationToken).ConfigureAwait(false);
+
         var conversionRequest = new ConversionRequest
         {
             ItemId = request.ItemId,
             Container = request.Container,
             VideoCodec = request.VideoCodec,
             Quality = request.Quality,
-            RateControlMode = request.RateControlMode,
-            VideoBitrateKbps = request.VideoBitrateKbps,
+            RateControlMode = rateControlMode,
+            VideoBitrateKbps = videoBitrateKbps,
             MaxVideoBitrateKbps = request.MaxVideoBitrateKbps,
             Mode = request.Mode,
             Preset = request.Preset,
@@ -217,15 +219,17 @@ public class MediaConverterController : ControllerBase
 
     /// <summary>
     /// Queues conversion jobs for multiple items at once (e.g. every episode in a season or series),
-    /// all sharing the same conversion parameters.
+    /// all sharing the same conversion parameters. When <see cref="RateControlMode.HalfSourceBitrate"/>
+    /// is requested, each item's target bitrate is resolved from its own source file individually.
     /// </summary>
     /// <param name="request">The shared conversion parameters and the item ids to convert.</param>
+    /// <param name="cancellationToken">Token used to cancel per-item bitrate resolution.</param>
     /// <returns>The newly created jobs, in the same order as the requested item ids.</returns>
     [HttpPost("Convert/Batch")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status400BadRequest)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult<IEnumerable<JobDto>> ConvertBatch([FromBody] BatchConvertRequestDto request)
+    public async Task<ActionResult<IEnumerable<JobDto>>> ConvertBatch([FromBody] BatchConvertRequestDto request, CancellationToken cancellationToken)
     {
         ArgumentNullException.ThrowIfNull(request);
 
@@ -237,6 +241,7 @@ public class MediaConverterController : ControllerBase
         }
 
         var directoryCache = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase);
+        var items = new List<Video>();
         foreach (var itemId in request.ItemIds)
         {
             if (_libraryManager.GetItemById(itemId) is not Video item)
@@ -249,29 +254,69 @@ public class MediaConverterController : ControllerBase
             {
                 return BadRequest(writabilityError);
             }
+
+            items.Add(item);
         }
 
-        var jobs = request.ItemIds.Select(itemId => _jobManager.Enqueue(new ConversionRequest
+        var jobs = new List<JobDto>();
+        foreach (var item in items)
         {
-            ItemId = itemId,
-            Container = request.Container,
-            VideoCodec = request.VideoCodec,
-            Quality = request.Quality,
-            RateControlMode = request.RateControlMode,
-            VideoBitrateKbps = request.VideoBitrateKbps,
-            MaxVideoBitrateKbps = request.MaxVideoBitrateKbps,
-            Mode = request.Mode,
-            Preset = request.Preset,
-            ScaleHeight = request.ScaleHeight,
-            AudioCodec = request.AudioCodec,
-            AudioBitrateKbps = request.AudioBitrateKbps,
-            SubtitleMode = request.SubtitleMode,
-            FfmpegArgsOverride = request.FfmpegArgsOverride
-        })).Select(job => new JobDto(job)).ToList();
+            var (rateControlMode, videoBitrateKbps) = await ResolveRateControlAsync(request.RateControlMode, request.VideoBitrateKbps, item.Path, cancellationToken).ConfigureAwait(false);
+
+            var job = _jobManager.Enqueue(new ConversionRequest
+            {
+                ItemId = item.Id,
+                Container = request.Container,
+                VideoCodec = request.VideoCodec,
+                Quality = request.Quality,
+                RateControlMode = rateControlMode,
+                VideoBitrateKbps = videoBitrateKbps,
+                MaxVideoBitrateKbps = request.MaxVideoBitrateKbps,
+                Mode = request.Mode,
+                Preset = request.Preset,
+                ScaleHeight = request.ScaleHeight,
+                AudioCodec = request.AudioCodec,
+                AudioBitrateKbps = request.AudioBitrateKbps,
+                SubtitleMode = request.SubtitleMode,
+                FfmpegArgsOverride = request.FfmpegArgsOverride
+            });
+
+            jobs.Add(new JobDto(job));
+        }
 
         _logger.LogInformation("ConvertBatch: queued {Count} job(s)", jobs.Count);
 
         return Ok(jobs);
+    }
+
+    /// <summary>
+    /// Resolves <see cref="RateControlMode.HalfSourceBitrate"/> into a concrete target bitrate by
+    /// probing the item's own current video bitrate via ffprobe; other modes pass through unchanged.
+    /// Falls back to quality mode if the source bitrate can't be determined.
+    /// </summary>
+    private async Task<(RateControlMode Mode, int? VideoBitrateKbps)> ResolveRateControlAsync(
+        RateControlMode requestedMode,
+        int? requestedVideoBitrateKbps,
+        string sourcePath,
+        CancellationToken cancellationToken)
+    {
+        if (requestedMode != RateControlMode.HalfSourceBitrate)
+        {
+            return (requestedMode, requestedVideoBitrateKbps);
+        }
+
+        var info = await _probeService.ProbeAsync(sourcePath, cancellationToken).ConfigureAwait(false);
+        var sourceBitsPerSecond = info?.VideoBitRate ?? info?.OverallBitRate;
+
+        if (sourceBitsPerSecond is null or <= 0)
+        {
+            _logger.LogWarning("HalfSourceBitrate requested for {SourcePath} but its bitrate is unknown; falling back to quality mode", sourcePath);
+            return (RateControlMode.Quality, null);
+        }
+
+        var halfKbps = Math.Max(1, (int)(sourceBitsPerSecond.Value / 2 / 1000));
+        _logger.LogInformation("HalfSourceBitrate resolved for {SourcePath}: {HalfKbps} kbps", sourcePath, halfKbps);
+        return (RateControlMode.Bitrate, halfKbps);
     }
 
     /// <summary>
@@ -505,5 +550,24 @@ public class MediaConverterController : ControllerBase
     public ActionResult CancelJob([FromRoute] Guid jobId)
     {
         return _jobManager.CancelJob(jobId) ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Removes a finished job from history. Queued or running jobs must be cancelled first.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>204 on success, 404 if the job wasn't found, or 409 if it's still queued/running.</returns>
+    [HttpDelete("Jobs/{jobId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    [ProducesResponseType(StatusCodes.Status409Conflict)]
+    public ActionResult RemoveJob([FromRoute] Guid jobId)
+    {
+        return _jobManager.RemoveJob(jobId) switch
+        {
+            RemoveJobOutcome.Success => NoContent(),
+            RemoveJobOutcome.JobNotFound => NotFound(),
+            _ => Conflict("This job is still queued or running; cancel it first.")
+        };
     }
 }

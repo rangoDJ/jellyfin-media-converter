@@ -14,5 +14,12 @@ public enum RateControlMode
     /// <summary>
     /// Target a specific average video bitrate instead of a fixed quality value.
     /// </summary>
-    Bitrate
+    Bitrate,
+
+    /// <summary>
+    /// Target half of each source file's own current video bitrate. Resolved per item (via
+    /// ffprobe) rather than a single client-supplied value, so it works correctly across a batch
+    /// of items with different source bitrates.
+    /// </summary>
+    HalfSourceBitrate
 }

@@ -156,6 +156,31 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     }
 
     /// <inheritdoc />
+    public RemoveJobOutcome RemoveJob(Guid jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job))
+        {
+            return RemoveJobOutcome.JobNotFound;
+        }
+
+        if (job.Status is ConversionJobStatus.Queued or ConversionJobStatus.Running)
+        {
+            return RemoveJobOutcome.NotEligible;
+        }
+
+        _jobs.TryRemove(jobId, out _);
+
+        if (_cancellationSources.TryRemove(jobId, out var source))
+        {
+            source.Dispose();
+        }
+
+        SaveJobs();
+        _logger.LogInformation("Job {JobId}: removed from history", jobId);
+        return RemoveJobOutcome.Success;
+    }
+
+    /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         LoadJobs();

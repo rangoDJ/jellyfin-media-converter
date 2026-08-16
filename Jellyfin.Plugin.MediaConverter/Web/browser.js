@@ -15,6 +15,13 @@
         });
     }
 
+    function apiDelete(path) {
+        return ApiClient.ajax({
+            type: 'DELETE',
+            url: ApiClient.getUrl(path)
+        });
+    }
+
     function showError(context, error) {
         console.error('Media Converter: ' + context, error);
         var banner = document.getElementById('mediaConverterError');
@@ -54,12 +61,14 @@
 
         if (info.VideoCodec) {
             var resolution = (info.Width && info.Height) ? (' ' + info.Width + 'x' + info.Height) : '';
-            parts.push(info.VideoCodec.toUpperCase() + resolution);
+            var videoBitrate = formatBitrate(info.VideoBitRate || info.OverallBitRate);
+            parts.push(info.VideoCodec.toUpperCase() + resolution + (videoBitrate ? (' @ ' + videoBitrate) : ''));
         }
 
         if (info.AudioCodec) {
             var channels = info.AudioChannels ? (' ' + info.AudioChannels + 'ch') : '';
-            parts.push(info.AudioCodec.toUpperCase() + channels);
+            var audioBitrate = formatBitrate(info.AudioBitRate);
+            parts.push(info.AudioCodec.toUpperCase() + channels + (audioBitrate ? (' @ ' + audioBitrate) : ''));
         }
 
         var size = formatBytes(info.FileSizeBytes);
@@ -142,8 +151,7 @@
             halfBitrateButton.addEventListener('click', function () {
                 openConvertDialog([itemId], labelText, info);
                 document.getElementById('codecSelect').value = 'hevc';
-                document.getElementById('rateControlSelect').value = 'Bitrate';
-                document.getElementById('videoBitrateInput').value = halfKbps;
+                document.getElementById('rateControlSelect').value = 'HalfSourceBitrate';
                 updateRateControlVisibility();
             });
             container.appendChild(halfBitrateButton);
@@ -209,6 +217,29 @@
             return;
         }
 
+        var rateControlMode = document.getElementById('rateControlSelect').value;
+
+        if (rateControlMode === 'HalfSourceBitrate') {
+            if (selectedItemIds.length > 1) {
+                textEl.textContent = 'Predicted size: varies per item (each is encoded at half its own source bitrate).';
+                return;
+            }
+
+            if (!currentItemMediaInfo || !currentItemMediaInfo.DurationTicks) {
+                textEl.textContent = 'Predicted size: unavailable (source duration unknown).';
+                return;
+            }
+
+            var sourceBps = currentItemMediaInfo.VideoBitRate || currentItemMediaInfo.OverallBitRate;
+            if (!sourceBps) {
+                textEl.textContent = 'Predicted size: unavailable (source bitrate unknown).';
+                return;
+            }
+
+            computePredictedSize(Math.round(sourceBps / 2 / 1000));
+            return;
+        }
+
         if (selectedItemIds.length !== 1) {
             textEl.textContent = 'Predicted size: only available when converting a single item.';
             return;
@@ -219,7 +250,7 @@
             return;
         }
 
-        if (document.getElementById('rateControlSelect').value !== 'Bitrate') {
+        if (rateControlMode !== 'Bitrate') {
             textEl.textContent = 'Predicted size: switch rate control to "Target average bitrate" to estimate (quality-based size depends on content).';
             return;
         }
@@ -230,6 +261,11 @@
             return;
         }
 
+        computePredictedSize(videoKbps);
+    }
+
+    function computePredictedSize(videoKbps) {
+        var textEl = document.getElementById('predictedSizeText');
         var durationSeconds = currentItemMediaInfo.DurationTicks / 10000000;
         var audioCodec = document.getElementById('audioCodecSelect').value;
         var audioKbps = 0;
@@ -792,6 +828,28 @@
                 });
             });
             row.appendChild(cancelButton);
+        } else {
+            var removeButton = document.createElement('button');
+            removeButton.setAttribute('is', 'emby-button');
+            removeButton.className = 'raised';
+            removeButton.style.marginLeft = '8px';
+            removeButton.textContent = 'Remove';
+            removeButton.addEventListener('click', function () {
+                if (!window.confirm('Remove this job from the list? This does not delete any media files.')) {
+                    return;
+                }
+
+                apiDelete('MediaConverter/Jobs/' + job.Id)
+                    .then(function () {
+                        clearError();
+                        delete jobRenderCache[job.Id];
+                        refreshJobs();
+                    })
+                    .catch(function (error) {
+                        showError('Removing job', error);
+                    });
+            });
+            row.appendChild(removeButton);
         }
 
         return { row: row, resultsBox: resultsBox };
