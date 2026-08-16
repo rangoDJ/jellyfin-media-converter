@@ -577,7 +577,15 @@
             video.preload = 'metadata';
             video.style.width = '100%';
             video.style.background = '#000';
-            video.src = ApiClient.getUrl(streamPath);
+            // A <video src> load can't carry the X-Emby-Token header the way ApiClient.ajax
+            // calls do, so the access token must be passed explicitly as a query parameter or
+            // this elevated-auth endpoint rejects the request before it ever reaches the server.
+            var streamUrlParams = {};
+            if (typeof ApiClient.accessToken === 'function') {
+                streamUrlParams.api_key = ApiClient.accessToken();
+            }
+
+            video.src = ApiClient.getUrl(streamPath, streamUrlParams);
             block.appendChild(video);
 
             return { block: block, video: video };
