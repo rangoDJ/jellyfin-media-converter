@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.20.0"
+version: "1.0.21.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,11 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.21: Fixed "Failed to execute 'json' on 'Response': Unexpected
+  end of JSON input" when clicking Cancel, Keep new variant, or Keep
+  original - those actions return an empty 204 response, but the
+  dashboard was forcing a JSON parse on it regardless, surfacing a
+  false error even though the action had already succeeded server-side.
   1.0.20: "Half of each source's current bitrate" is now a proper
   rate control option in the convert dialog, usable for season/series
   batch conversions too - each item's target bitrate is resolved from
