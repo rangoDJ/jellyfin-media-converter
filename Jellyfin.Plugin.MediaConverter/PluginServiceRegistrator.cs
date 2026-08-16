@@ -19,6 +19,7 @@ public class PluginServiceRegistrator : IPluginServiceRegistrator
         serviceCollection.AddSingleton<Services.ConversionEngine>();
         serviceCollection.AddSingleton<Services.MediaProbeService>();
         serviceCollection.AddSingleton<Services.PreviewRemuxService>();
+        serviceCollection.AddSingleton<Services.PreviewTokenService>();
         serviceCollection.AddSingleton<Services.IConversionJobManager, Services.ConversionJobManager>();
         serviceCollection.AddHostedService(provider => (Services.ConversionJobManager)provider.GetRequiredService<Services.IConversionJobManager>());
     }

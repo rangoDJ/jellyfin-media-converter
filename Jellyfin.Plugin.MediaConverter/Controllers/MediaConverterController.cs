@@ -30,6 +30,7 @@ public class MediaConverterController : ControllerBase
     private readonly IConversionJobManager _jobManager;
     private readonly MediaProbeService _probeService;
     private readonly PreviewRemuxService _remuxService;
+    private readonly PreviewTokenService _tokenService;
     private readonly ILogger<MediaConverterController> _logger;
 
     /// <summary>
@@ -39,18 +40,21 @@ public class MediaConverterController : ControllerBase
     /// <param name="jobManager">Used to queue and track conversion jobs.</param>
     /// <param name="probeService">Used to read codec/quality stats directly via ffprobe.</param>
     /// <param name="remuxService">Used to make non-browser-friendly containers playable for previews.</param>
+    /// <param name="tokenService">Used to authorize preview stream requests that can't carry an auth header.</param>
     /// <param name="logger">Logger for tracing dashboard API requests.</param>
     public MediaConverterController(
         ILibraryManager libraryManager,
         IConversionJobManager jobManager,
         MediaProbeService probeService,
         PreviewRemuxService remuxService,
+        PreviewTokenService tokenService,
         ILogger<MediaConverterController> logger)
     {
         _libraryManager = libraryManager;
         _jobManager = jobManager;
         _probeService = probeService;
         _remuxService = remuxService;
+        _tokenService = tokenService;
         _logger = logger;
     }
 
@@ -422,19 +426,51 @@ public class MediaConverterController : ControllerBase
     }
 
     /// <summary>
+    /// Issues a short-lived token authorizing one preview stream of a job's original or variant
+    /// file. A plain &lt;video src&gt; load can't carry the request header normal API calls use for
+    /// auth, and a query-string copy of that token isn't honored by this controller's elevation
+    /// policy, so the stream endpoints validate one of these self-issued tokens instead of
+    /// Jellyfin's own auth. This issuance endpoint itself still requires normal authenticated access.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <param name="variant">Whether the token is for the variant (vs. the original) file.</param>
+    /// <returns>The issued token, or 404 if the job wasn't found.</returns>
+    [HttpGet("Jobs/{jobId}/Stream/Token")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<object> IssueStreamToken([FromRoute] Guid jobId, [FromQuery] bool variant)
+    {
+        if (_jobManager.GetJob(jobId) is null)
+        {
+            return NotFound();
+        }
+
+        return Ok(new { Token = _tokenService.IssueToken(jobId, variant) });
+    }
+
+    /// <summary>
     /// Streams a variant job's original source file for in-browser playback/preview, supporting
     /// HTTP range requests so the video element can seek. Non-browser-friendly containers (e.g.
     /// Matroska) are transparently remuxed to MP4 first via stream copy - no re-encoding.
     /// </summary>
     /// <param name="jobId">The job id.</param>
+    /// <param name="token">A token issued via <see cref="IssueStreamToken"/> for this job's original file.</param>
     /// <param name="cancellationToken">Token used to cancel a pending remux.</param>
-    /// <returns>The file stream, or 404 if the job or its source file no longer exists.</returns>
+    /// <returns>The file stream, 401 if the token is invalid, or 404 if the job or its file no longer exists.</returns>
+    [AllowAnonymous]
     [HttpGet("Jobs/{jobId}/Stream/Original")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> StreamOriginal([FromRoute] Guid jobId, CancellationToken cancellationToken)
+    public async Task<ActionResult> StreamOriginal([FromRoute] Guid jobId, [FromQuery] string? token, CancellationToken cancellationToken)
     {
         _logger.LogInformation("StreamOriginal requested for job {JobId}", jobId);
+
+        if (!_tokenService.Validate(token, jobId, isVariant: false))
+        {
+            _logger.LogWarning("StreamOriginal: invalid or expired token for job {JobId}", jobId);
+            return Unauthorized();
+        }
 
         var job = _jobManager.GetJob(jobId);
         if (job is null)
@@ -454,14 +490,23 @@ public class MediaConverterController : ControllerBase
     /// Matroska) are transparently remuxed to MP4 first via stream copy - no re-encoding.
     /// </summary>
     /// <param name="jobId">The job id.</param>
+    /// <param name="token">A token issued via <see cref="IssueStreamToken"/> for this job's variant file.</param>
     /// <param name="cancellationToken">Token used to cancel a pending remux.</param>
-    /// <returns>The file stream, or 404 if the job or its output file no longer exists.</returns>
+    /// <returns>The file stream, 401 if the token is invalid, or 404 if the job or its file no longer exists.</returns>
+    [AllowAnonymous]
     [HttpGet("Jobs/{jobId}/Stream/Variant")]
     [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status401Unauthorized)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public async Task<ActionResult> StreamVariant([FromRoute] Guid jobId, CancellationToken cancellationToken)
+    public async Task<ActionResult> StreamVariant([FromRoute] Guid jobId, [FromQuery] string? token, CancellationToken cancellationToken)
     {
         _logger.LogInformation("StreamVariant requested for job {JobId}", jobId);
+
+        if (!_tokenService.Validate(token, jobId, isVariant: true))
+        {
+            _logger.LogWarning("StreamVariant: invalid or expired token for job {JobId}", jobId);
+            return Unauthorized();
+        }
 
         var job = _jobManager.GetJob(jobId);
         if (job is null)

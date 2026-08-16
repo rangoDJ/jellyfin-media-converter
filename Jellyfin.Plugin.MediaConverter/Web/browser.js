@@ -562,7 +562,7 @@
         wrapper.style.gap = '12px';
         wrapper.style.marginTop = '8px';
 
-        function buildPlayerBlock(labelText, streamPath) {
+        function buildPlayerBlock(labelText) {
             var block = document.createElement('div');
             block.style.flex = '1 1 280px';
             block.style.maxWidth = '400px';
@@ -577,32 +577,38 @@
             video.preload = 'metadata';
             video.style.width = '100%';
             video.style.background = '#000';
-            // A <video src> load can't carry the X-Emby-Token header the way ApiClient.ajax
-            // calls do, so the access token must be passed explicitly as a query parameter or
-            // this elevated-auth endpoint rejects the request before it ever reaches the server.
-            var streamUrlParams = {};
-            if (typeof ApiClient.accessToken === 'function') {
-                streamUrlParams.api_key = ApiClient.accessToken();
-            }
-
-            video.src = ApiClient.getUrl(streamPath, streamUrlParams);
             block.appendChild(video);
 
             return { block: block, video: video };
         }
 
-        var originalPlayer = buildPlayerBlock('Original', 'MediaConverter/Jobs/' + job.Id + '/Stream/Original');
-        var variantPlayer = buildPlayerBlock('New variant', 'MediaConverter/Jobs/' + job.Id + '/Stream/Variant');
+        // A <video src> load can't carry the auth header ApiClient.ajax calls use, and Jellyfin's
+        // "RequiresElevation" policy doesn't honor a query-string copy of that token either - so a
+        // short-lived, single-purpose token is fetched first (over a normal authenticated request)
+        // and used to authorize the stream instead of relying on Jellyfin's own auth for it.
+        function loadStream(isVariant, video) {
+            apiGet('MediaConverter/Jobs/' + job.Id + '/Stream/Token?variant=' + isVariant)
+                .then(function (result) {
+                    var streamPath = 'MediaConverter/Jobs/' + job.Id + '/Stream/' + (isVariant ? 'Variant' : 'Original');
+                    video.src = ApiClient.getUrl(streamPath, { token: result.Token });
+                    var playPromise = video.play();
+                    if (playPromise && playPromise.catch) {
+                        playPromise.catch(function () {});
+                    }
+                })
+                .catch(function (error) {
+                    showError('Loading preview stream', error);
+                });
+        }
+
+        var originalPlayer = buildPlayerBlock('Original');
+        var variantPlayer = buildPlayerBlock('New variant');
 
         wrapper.appendChild(originalPlayer.block);
         wrapper.appendChild(variantPlayer.block);
 
-        [originalPlayer.video, variantPlayer.video].forEach(function (video) {
-            var playPromise = video.play();
-            if (playPromise && playPromise.catch) {
-                playPromise.catch(function () {});
-            }
-        });
+        loadStream(false, originalPlayer.video);
+        loadStream(true, variantPlayer.video);
 
         var controlsRow = document.createElement('div');
         controlsRow.style.width = '100%';
