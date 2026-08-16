@@ -610,6 +610,14 @@
         loadStream(false, originalPlayer.video);
         loadStream(true, variantPlayer.video);
 
+        function syncVariantToOriginal() {
+            variantPlayer.video.currentTime = originalPlayer.video.currentTime;
+        }
+
+        // Whenever the user scrubs the original's timeline, automatically move the variant to
+        // the same position - the two otherwise drift apart with no way to tell just by looking.
+        originalPlayer.video.addEventListener('seeked', syncVariantToOriginal);
+
         var controlsRow = document.createElement('div');
         controlsRow.style.width = '100%';
 
@@ -628,6 +636,21 @@
             });
         });
         controlsRow.appendChild(restartButton);
+
+        var syncButton = document.createElement('button');
+        syncButton.setAttribute('is', 'emby-button');
+        syncButton.className = 'raised';
+        syncButton.textContent = 'Sync to original’s time';
+        syncButton.addEventListener('click', function () {
+            syncVariantToOriginal();
+            if (!originalPlayer.video.paused) {
+                var playPromise = variantPlayer.video.play();
+                if (playPromise && playPromise.catch) {
+                    playPromise.catch(function () {});
+                }
+            }
+        });
+        controlsRow.appendChild(syncButton);
 
         var pauseButton = document.createElement('button');
         pauseButton.setAttribute('is', 'emby-button');
