@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.25.0"
+version: "1.0.26.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,15 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.26: The jobs section is now an actual table (File/Status/
+  Progress/Actions columns) instead of a loose stack of divs. Added
+  "Select all pending", "Remove all completed jobs", and "Remove all
+  history" for tidying up the list in bulk (jobs still awaiting a
+  variant decision are always left alone so their extra file isn't
+  orphaned). Also added a "Pause queue after current job" toggle:
+  whatever's currently converting is left to finish, but no further
+  queued jobs start until you resume - already-queued jobs stay
+  queued rather than being cancelled.
   1.0.25: Jobs awaiting a variant keep/delete decision now have a
   checkbox, and two new buttons above the jobs list let you apply
   "Keep as new variant" or "Keep as original" to every checked job at
