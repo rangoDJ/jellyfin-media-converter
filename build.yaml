@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.23.0"
+version: "1.0.24.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,10 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.24: The two comparison players now stay in sync instead of
+  drifting apart - seeking the original automatically moves the new
+  variant to the same position, and a "Sync to original's time"
+  button corrects drift during normal playback.
   1.0.23: Fixed side-by-side comparison playback for real this time -
   passing the auth token via query string (1.0.22) still got a 401,
   since Jellyfin's elevation policy doesn't grant elevated access from
