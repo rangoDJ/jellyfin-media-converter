@@ -9,8 +9,8 @@ namespace Jellyfin.Plugin.MediaConverter.Services;
 public interface IConversionJobManager
 {
     /// <summary>
-    /// Gets whether the queue is paused: any job currently running is left to finish, but no
-    /// further queued jobs are started until resumed.
+    /// Gets a value indicating whether the queue is paused: any job currently running is left to
+    /// finish, but no further queued jobs are started until resumed.
     /// </summary>
     bool IsQueuePaused { get; }
 
