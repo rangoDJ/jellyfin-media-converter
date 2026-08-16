@@ -22,6 +22,16 @@
         });
     }
 
+    // For POST endpoints that return 204 No Content (Cancel, KeepVariant, KeepOriginal) - unlike
+    // apiPost, this doesn't force dataType: 'json', which would otherwise try to parse the empty
+    // body and fail with "Unexpected end of JSON input" even though the request succeeded.
+    function apiPostNoContent(path) {
+        return ApiClient.ajax({
+            type: 'POST',
+            url: ApiClient.getUrl(path)
+        });
+    }
+
     function showError(context, error) {
         console.error('Media Converter: ' + context, error);
         var banner = document.getElementById('mediaConverterError');
@@ -717,7 +727,7 @@
                 return;
             }
 
-            apiPost('MediaConverter/Jobs/' + job.Id + '/KeepVariant')
+            apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/KeepVariant')
                 .then(function () {
                     clearError();
                     refreshJobs();
@@ -736,7 +746,7 @@
                 return;
             }
 
-            apiPost('MediaConverter/Jobs/' + job.Id + '/KeepOriginal')
+            apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/KeepOriginal')
                 .then(function () {
                     clearError();
                     refreshJobs();
@@ -823,7 +833,7 @@
             cancelButton.className = 'raised';
             cancelButton.textContent = 'Cancel';
             cancelButton.addEventListener('click', function () {
-                apiPost('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
+                apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
                     showError('Cancelling job', error);
                 });
             });
