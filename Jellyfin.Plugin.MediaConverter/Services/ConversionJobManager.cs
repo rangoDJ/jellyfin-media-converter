@@ -82,6 +82,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             throw new InvalidOperationException("Unable to queue the conversion job.");
         }
 
+        _logger.LogInformation("Enqueued job {JobId}: {SourcePath} -> {OutputPath}", job.Id, job.SourcePath, job.OutputPath);
         return job;
     }
 
@@ -130,6 +131,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         SaveJobs();
 
         _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(_directoryService), RefreshPriority.High);
+        _logger.LogInformation("Job {JobId}: kept new variant, original replaced", jobId);
         return VariantResolveOutcome.Success;
     }
 
@@ -149,6 +151,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         TryDeleteFile(job.OutputPath);
         job.VariantResolution = VariantResolution.KeptOriginal;
         SaveJobs();
+        _logger.LogInformation("Job {JobId}: kept original, new variant deleted", jobId);
         return VariantResolveOutcome.Success;
     }
 
@@ -215,6 +218,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
     private async Task RunJobAsync(ConversionJob job, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("Job {JobId}: starting conversion of {SourcePath}", job.Id, job.SourcePath);
         job.Status = ConversionJobStatus.Running;
         SaveJobs();
         _libraryMonitor.ReportFileSystemChangeBeginning(job.SourcePath);
@@ -224,27 +228,33 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             var item = _libraryManager.GetItemById(job.Request.ItemId) as Video
                 ?? throw new InvalidOperationException("The requested item was not found or is not a video.");
             var encoder = _encoderResolver.Resolve(job.Request.VideoCodec);
+            _logger.LogInformation("Job {JobId}: resolved encoder {Encoder} for codec {Codec}", job.Id, encoder.Encoder, job.Request.VideoCodec);
 
             var totalDurationTicks = item.RunTimeTicks ?? 0;
             if (totalDurationTicks <= 0)
             {
+                _logger.LogInformation("Job {JobId}: RunTimeTicks missing, probing duration via ffprobe", job.Id);
                 totalDurationTicks = await _engine.ProbeDurationTicksAsync(job.SourcePath, cancellationToken).ConfigureAwait(false);
             }
 
             await _engine.RunAsync(job, encoder, totalDurationTicks, cancellationToken).ConfigureAwait(false);
+            _logger.LogInformation("Job {JobId}: ffmpeg finished, writing to {OutputPath}", job.Id, job.OutputPath);
 
             if (job.Request.Mode == ConversionMode.Replace)
             {
                 FinalizeReplace(item, job);
+                _logger.LogInformation("Job {JobId}: replaced original file at {Path}", job.Id, item.Path);
             }
 
             job.ProgressPercent = 100;
             job.Status = ConversionJobStatus.Completed;
+            _logger.LogInformation("Job {JobId}: completed", job.Id);
 
             _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(_directoryService), RefreshPriority.High);
         }
         catch (OperationCanceledException)
         {
+            _logger.LogInformation("Job {JobId}: cancelled", job.Id);
             job.Status = ConversionJobStatus.Cancelled;
             TryDeleteFile(job.OutputPath);
         }
@@ -360,10 +370,11 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
                 var tempPath = path + ".tmp";
                 File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot));
                 File.Move(tempPath, path, true);
+                _logger.LogDebug("Persisted {Count} job(s) to {Path}", snapshot.Count, path);
             }
             catch (IOException ex)
             {
-                _logger.LogWarning(ex, "Unable to persist conversion job history");
+                _logger.LogWarning(ex, "Unable to persist conversion job history to {Path}", path);
             }
         }
     }
@@ -376,8 +387,15 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     private void LoadJobs()
     {
         var path = GetJobsFilePath();
-        if (path is null || !File.Exists(path))
+        if (path is null)
         {
+            _logger.LogInformation("No plugin data folder available; job history will not persist across restarts");
+            return;
+        }
+
+        if (!File.Exists(path))
+        {
+            _logger.LogInformation("No persisted job history found at {Path} (first run, or none yet)", path);
             return;
         }
 
@@ -389,7 +407,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         }
         catch (Exception ex) when (ex is IOException or JsonException)
         {
-            _logger.LogWarning(ex, "Unable to load persisted conversion job history");
+            _logger.LogWarning(ex, "Unable to load persisted conversion job history from {Path}", path);
             return;
         }
 
@@ -398,6 +416,8 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             return;
         }
 
+        _logger.LogInformation("Loading {Count} persisted job(s) from {Path}", snapshot.Count, path);
+
         foreach (var persisted in snapshot)
         {
             var status = persisted.Status;
@@ -405,6 +425,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
             if (status is ConversionJobStatus.Queued or ConversionJobStatus.Running)
             {
+                _logger.LogInformation("Job {JobId} was {PreviousStatus} at last shutdown; marking as failed/interrupted", persisted.Id, status);
                 status = ConversionJobStatus.Failed;
                 errorMessage = "Interrupted by a server restart.";
                 TryDeleteFile(persisted.OutputPath);

@@ -2,6 +2,8 @@ using System;
 using System.Diagnostics;
 using System.Diagnostics.CodeAnalysis;
 using System.IO;
+using System.Linq;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.MediaEncoding;
@@ -33,7 +35,7 @@ public class PreviewRemuxService
     /// Initializes a new instance of the <see cref="PreviewRemuxService"/> class.
     /// </summary>
     /// <param name="mediaEncoder">Provides the path to the server's own ffmpeg binary.</param>
-    /// <param name="logger">Logger for reporting remux failures.</param>
+    /// <param name="logger">Logger for reporting remux progress/failures.</param>
     public PreviewRemuxService(IMediaEncoder mediaEncoder, ILogger<PreviewRemuxService> logger)
     {
         _mediaEncoder = mediaEncoder;
@@ -51,8 +53,11 @@ public class PreviewRemuxService
     /// <returns>The path to serve for playback.</returns>
     public async Task<string> GetPlayablePathAsync(string sourcePath, string cacheKey, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("Preview requested for {SourcePath} (cacheKey={CacheKey})", sourcePath, cacheKey);
+
         if (Array.IndexOf(BrowserFriendlyExtensions, Path.GetExtension(sourcePath).ToLowerInvariant()) >= 0)
         {
+            _logger.LogInformation("{SourcePath} already has a browser-friendly container; serving directly", sourcePath);
             return sourcePath;
         }
 
@@ -62,6 +67,7 @@ public class PreviewRemuxService
 
         if (File.Exists(cachedPath))
         {
+            _logger.LogInformation("Using cached remux {CachedPath}", cachedPath);
             return cachedPath;
         }
 
@@ -82,6 +88,7 @@ public class PreviewRemuxService
         }
 
         File.Move(tempPath, cachedPath, true);
+        _logger.LogInformation("Remux complete: {CachedPath}", cachedPath);
         return cachedPath;
     }
 
@@ -120,20 +127,40 @@ public class PreviewRemuxService
         startInfo.ArgumentList.Add("mp4");
         startInfo.ArgumentList.Add(tempPath);
 
-        using var process = new Process { StartInfo = startInfo };
+        _logger.LogInformation("Running command: {Command}", FormatCommand(startInfo));
+
+        using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
+
+        // ffmpeg writes a steady stream of progress/mapping info to stderr. Both redirected
+        // streams must be drained asynchronously as the process runs - if neither is read and
+        // ffmpeg fills the pipe buffer, it blocks on the write and WaitForExitAsync hangs forever.
+        var stderr = new StringBuilder();
+        process.ErrorDataReceived += (_, args) =>
+        {
+            if (args.Data is not null)
+            {
+                stderr.AppendLine(args.Data);
+            }
+        };
+
         process.Start();
+        process.BeginOutputReadLine();
+        process.BeginErrorReadLine();
+
         await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
         if (process.ExitCode == 0 && File.Exists(tempPath))
         {
+            _logger.LogInformation("Remux attempt succeeded (includeAudio={IncludeAudio}) for {SourcePath}", includeAudio, sourcePath);
             return true;
         }
 
-        if (!includeAudio)
-        {
-            _logger.LogWarning("Video-only remux of {SourcePath} also failed", sourcePath);
-        }
-
+        _logger.LogWarning(
+            "Remux attempt failed (exitCode={ExitCode}, includeAudio={IncludeAudio}) for {SourcePath}. ffmpeg stderr: {Stderr}",
+            process.ExitCode,
+            includeAudio,
+            sourcePath,
+            stderr.ToString());
         TryDeleteFile(tempPath);
         return false;
     }
@@ -150,5 +177,15 @@ public class PreviewRemuxService
         catch (IOException)
         {
         }
+    }
+
+    private static string FormatCommand(ProcessStartInfo startInfo)
+    {
+        return QuoteIfNeeded(startInfo.FileName) + " " + string.Join(' ', startInfo.ArgumentList.Select(QuoteIfNeeded));
+    }
+
+    private static string QuoteIfNeeded(string arg)
+    {
+        return arg.Contains(' ', StringComparison.Ordinal) ? "\"" + arg + "\"" : arg;
     }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Globalization;
+using System.Linq;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -96,9 +97,27 @@ public class ConversionEngine
 
         BuildArguments(startInfo, job, encoder);
 
+        _logger.LogInformation("Job {JobId}: running command: {Command}", job.Id, FormatCommand(startInfo));
+
         using var process = new Process { StartInfo = startInfo, EnableRaisingEvents = true };
 
-        process.OutputDataReceived += (_, args) => OnProgressLine(job, totalDurationTicks, args.Data);
+        var lastLoggedDecile = -1;
+        process.OutputDataReceived += (_, args) =>
+        {
+            if (!TryParseProgress(args.Data, totalDurationTicks, out var percent))
+            {
+                return;
+            }
+
+            job.ProgressPercent = percent;
+
+            var decile = (int)(percent / 10);
+            if (decile > lastLoggedDecile)
+            {
+                lastLoggedDecile = decile;
+                _logger.LogInformation("Job {JobId}: {Percent:F0}% complete", job.Id, percent);
+            }
+        };
 
         var stderr = new StringBuilder();
         process.ErrorDataReceived += (_, args) =>
@@ -129,6 +148,8 @@ public class ConversionEngine
             throw new InvalidOperationException(
                 string.Format(CultureInfo.InvariantCulture, "ffmpeg exited with code {0}: {1}", process.ExitCode, stderr.ToString()));
         }
+
+        _logger.LogInformation("Job {JobId}: ffmpeg exited successfully", job.Id);
     }
 
     private static void BuildArguments(ProcessStartInfo startInfo, ConversionJob job, EncoderSelection encoder)
@@ -243,26 +264,41 @@ public class ConversionEngine
         }
     }
 
-    private static void OnProgressLine(ConversionJob job, long totalDurationTicks, string? line)
+    private static bool TryParseProgress(string? line, long totalDurationTicks, out double percent)
     {
+        percent = 0;
+
         if (string.IsNullOrEmpty(line) || totalDurationTicks <= 0)
         {
-            return;
+            return false;
         }
 
         var separatorIndex = line.IndexOf('=', StringComparison.Ordinal);
         if (separatorIndex < 0)
         {
-            return;
+            return false;
         }
 
         var key = line[..separatorIndex];
         var value = line[(separatorIndex + 1)..];
 
-        if (key == "out_time_us" && long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var outTimeUs))
+        if (key != "out_time_us" || !long.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out var outTimeUs))
         {
-            var elapsedTicks = outTimeUs * 10L;
-            job.ProgressPercent = Math.Clamp(elapsedTicks * 100d / totalDurationTicks, 0, 100);
+            return false;
         }
+
+        var elapsedTicks = outTimeUs * 10L;
+        percent = Math.Clamp(elapsedTicks * 100d / totalDurationTicks, 0, 100);
+        return true;
+    }
+
+    private static string FormatCommand(ProcessStartInfo startInfo)
+    {
+        return QuoteIfNeeded(startInfo.FileName) + " " + string.Join(' ', startInfo.ArgumentList.Select(QuoteIfNeeded));
+    }
+
+    private static string QuoteIfNeeded(string arg)
+    {
+        return arg.Contains(' ', StringComparison.Ordinal) ? "\"" + arg + "\"" : arg;
     }
 }

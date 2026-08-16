@@ -14,6 +14,7 @@ using MediaBrowser.Controller.Library;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging;
 
 namespace Jellyfin.Plugin.MediaConverter.Controllers;
 
@@ -29,6 +30,7 @@ public class MediaConverterController : ControllerBase
     private readonly IConversionJobManager _jobManager;
     private readonly MediaProbeService _probeService;
     private readonly PreviewRemuxService _remuxService;
+    private readonly ILogger<MediaConverterController> _logger;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaConverterController"/> class.
@@ -37,16 +39,19 @@ public class MediaConverterController : ControllerBase
     /// <param name="jobManager">Used to queue and track conversion jobs.</param>
     /// <param name="probeService">Used to read codec/quality stats directly via ffprobe.</param>
     /// <param name="remuxService">Used to make non-browser-friendly containers playable for previews.</param>
+    /// <param name="logger">Logger for tracing dashboard API requests.</param>
     public MediaConverterController(
         ILibraryManager libraryManager,
         IConversionJobManager jobManager,
         MediaProbeService probeService,
-        PreviewRemuxService remuxService)
+        PreviewRemuxService remuxService,
+        ILogger<MediaConverterController> logger)
     {
         _libraryManager = libraryManager;
         _jobManager = jobManager;
         _probeService = probeService;
         _remuxService = remuxService;
+        _logger = logger;
     }
 
     /// <summary>
@@ -172,14 +177,18 @@ public class MediaConverterController : ControllerBase
     {
         ArgumentNullException.ThrowIfNull(request);
 
+        _logger.LogInformation("Convert requested for item {ItemId} ({Codec}, {Container})", request.ItemId, request.VideoCodec, request.Container);
+
         if (_libraryManager.GetItemById(request.ItemId) is not Video item)
         {
+            _logger.LogWarning("Convert: item {ItemId} was not found or is not a video", request.ItemId);
             return NotFound();
         }
 
         var writabilityError = CheckWritable(item.Path, new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase));
         if (writabilityError is not null)
         {
+            _logger.LogWarning("Convert: {Error}", writabilityError);
             return BadRequest(writabilityError);
         }
 
@@ -202,6 +211,7 @@ public class MediaConverterController : ControllerBase
         };
 
         var job = _jobManager.Enqueue(conversionRequest);
+        _logger.LogInformation("Convert: queued job {JobId} for item {ItemId}", job.Id, request.ItemId);
         return Ok(new JobDto(job));
     }
 
@@ -218,6 +228,8 @@ public class MediaConverterController : ControllerBase
     public ActionResult<IEnumerable<JobDto>> ConvertBatch([FromBody] BatchConvertRequestDto request)
     {
         ArgumentNullException.ThrowIfNull(request);
+
+        _logger.LogInformation("ConvertBatch requested for {Count} item(s) ({Codec}, {Container})", request.ItemIds.Count, request.VideoCodec, request.Container);
 
         if (request.ItemIds.Count == 0)
         {
@@ -257,6 +269,8 @@ public class MediaConverterController : ControllerBase
             FfmpegArgsOverride = request.FfmpegArgsOverride
         })).Select(job => new JobDto(job)).ToList();
 
+        _logger.LogInformation("ConvertBatch: queued {Count} job(s)", jobs.Count);
+
         return Ok(jobs);
     }
 
@@ -272,13 +286,22 @@ public class MediaConverterController : ControllerBase
     [ProducesResponseType(StatusCodes.Status502BadGateway)]
     public async Task<ActionResult<MediaInfo>> GetMediaInfo([FromRoute] Guid itemId, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("GetMediaInfo requested for item {ItemId}", itemId);
+
         if (_libraryManager.GetItemById(itemId) is not Video item)
         {
+            _logger.LogWarning("GetMediaInfo: item {ItemId} was not found or is not a video", itemId);
             return NotFound();
         }
 
         var info = await _probeService.ProbeAsync(item.Path, cancellationToken).ConfigureAwait(false);
-        return info is null ? StatusCode(StatusCodes.Status502BadGateway, "Unable to probe the media file.") : Ok(info);
+        if (info is null)
+        {
+            _logger.LogWarning("GetMediaInfo: ffprobe failed for {Path}", item.Path);
+            return StatusCode(StatusCodes.Status502BadGateway, "Unable to probe the media file.");
+        }
+
+        return Ok(info);
     }
 
     /// <summary>
@@ -294,19 +317,32 @@ public class MediaConverterController : ControllerBase
     [ProducesResponseType(StatusCodes.Status409Conflict)]
     public async Task<ActionResult<VariantCompareDto>> CompareVariant([FromRoute] Guid jobId, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("CompareVariant requested for job {JobId}", jobId);
+
         var job = _jobManager.GetJob(jobId);
         if (job is null)
         {
+            _logger.LogWarning("CompareVariant: job {JobId} was not found", jobId);
             return NotFound();
         }
 
         if (job.VariantResolution != VariantResolution.PendingReview || job.Status != ConversionJobStatus.Completed)
         {
+            _logger.LogWarning(
+                "CompareVariant: job {JobId} is not eligible (status={Status}, variantResolution={VariantResolution})",
+                jobId,
+                job.Status,
+                job.VariantResolution);
             return Conflict("This job has no pending original/variant decision to compare.");
         }
 
         var original = await _probeService.ProbeAsync(job.SourcePath, cancellationToken).ConfigureAwait(false);
         var variant = await _probeService.ProbeAsync(job.OutputPath, cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation(
+            "CompareVariant for job {JobId}: original probe {OriginalResult}, variant probe {VariantResult}",
+            jobId,
+            original is null ? "failed" : "ok",
+            variant is null ? "failed" : "ok");
         return Ok(new VariantCompareDto(jobId, original, variant));
     }
 
@@ -352,13 +388,17 @@ public class MediaConverterController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> StreamOriginal([FromRoute] Guid jobId, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("StreamOriginal requested for job {JobId}", jobId);
+
         var job = _jobManager.GetJob(jobId);
         if (job is null)
         {
+            _logger.LogWarning("StreamOriginal: job {JobId} was not found", jobId);
             return NotFound();
         }
 
         var playablePath = await _remuxService.GetPlayablePathAsync(job.SourcePath, jobId + "-original", cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("StreamOriginal for job {JobId} serving {PlayablePath}", jobId, playablePath);
         return StreamFile(playablePath);
     }
 
@@ -375,13 +415,17 @@ public class MediaConverterController : ControllerBase
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     public async Task<ActionResult> StreamVariant([FromRoute] Guid jobId, CancellationToken cancellationToken)
     {
+        _logger.LogInformation("StreamVariant requested for job {JobId}", jobId);
+
         var job = _jobManager.GetJob(jobId);
         if (job is null)
         {
+            _logger.LogWarning("StreamVariant: job {JobId} was not found", jobId);
             return NotFound();
         }
 
         var playablePath = await _remuxService.GetPlayablePathAsync(job.OutputPath, jobId + "-variant", cancellationToken).ConfigureAwait(false);
+        _logger.LogInformation("StreamVariant for job {JobId} serving {PlayablePath}", jobId, playablePath);
         return StreamFile(playablePath);
     }
 
@@ -391,11 +435,15 @@ public class MediaConverterController : ControllerBase
         Justification = "path is not built from user input - it's a job's SourcePath/OutputPath, resolved and " +
             "stored server-side when the job was enqueued. The caller's Guid jobId is only ever used as a " +
             "dictionary lookup key to find that job, never concatenated into a path.")]
-    private static ActionResult StreamFile(string path)
+    private ActionResult StreamFile(string path)
     {
-        return System.IO.File.Exists(path)
-            ? new PhysicalFileResult(path, GetVideoContentType(path)) { EnableRangeProcessing = true }
-            : new NotFoundResult();
+        if (!System.IO.File.Exists(path))
+        {
+            _logger.LogWarning("StreamFile: {Path} does not exist on disk", path);
+            return new NotFoundResult();
+        }
+
+        return new PhysicalFileResult(path, GetVideoContentType(path)) { EnableRangeProcessing = true };
     }
 
     private static string GetVideoContentType(string path)
