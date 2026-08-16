@@ -26,9 +26,26 @@ public class BatchConvertRequestDto
     public string VideoCodec { get; set; } = "hevc";
 
     /// <summary>
-    /// Gets or sets the quality value passed to the encoder.
+    /// Gets or sets the quality value passed to the encoder. Only used when
+    /// <see cref="RateControlMode"/> is <see cref="RateControlMode.Quality"/>.
     /// </summary>
     public int Quality { get; set; } = 23;
+
+    /// <summary>
+    /// Gets or sets whether the encoder targets a fixed quality value or a specific average bitrate.
+    /// </summary>
+    public RateControlMode RateControlMode { get; set; } = RateControlMode.Quality;
+
+    /// <summary>
+    /// Gets or sets the target average video bitrate in kbps, used only when
+    /// <see cref="RateControlMode"/> is <see cref="RateControlMode.Bitrate"/>.
+    /// </summary>
+    public int? VideoBitrateKbps { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional video bitrate cap in kbps, usable with either rate control mode.
+    /// </summary>
+    public int? MaxVideoBitrateKbps { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the original files are replaced or new variants are created.

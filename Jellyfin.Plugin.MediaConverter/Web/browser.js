@@ -102,7 +102,7 @@
         return (bitsPerSecond / 1000).toFixed(0) + ' kbps';
     }
 
-    function renderMediaInfoDetail(container, info) {
+    function renderMediaInfoDetail(container, itemId, labelText, info) {
         container.innerHTML = '';
 
         if (!info) {
@@ -110,7 +110,8 @@
             return;
         }
 
-        var videoBitrate = formatBitrate(info.VideoBitRate) || formatBitrate(info.OverallBitRate);
+        var sourceBps = info.VideoBitRate || info.OverallBitRate;
+        var videoBitrate = formatBitrate(sourceBps);
         var audioBitrate = formatBitrate(info.AudioBitRate);
 
         var lines = [
@@ -129,6 +130,24 @@
             lineEl.textContent = line;
             container.appendChild(lineEl);
         });
+
+        if (sourceBps) {
+            var halfKbps = Math.max(1, Math.round(sourceBps / 2 / 1000));
+
+            var halfBitrateButton = document.createElement('button');
+            halfBitrateButton.setAttribute('is', 'emby-button');
+            halfBitrateButton.className = 'raised';
+            halfBitrateButton.style.marginTop = '4px';
+            halfBitrateButton.textContent = 'Convert at ~half bitrate (' + halfKbps + ' kbps, HEVC/AV1)';
+            halfBitrateButton.addEventListener('click', function () {
+                openConvertDialog([itemId], labelText, info);
+                document.getElementById('codecSelect').value = 'hevc';
+                document.getElementById('rateControlSelect').value = 'Bitrate';
+                document.getElementById('videoBitrateInput').value = halfKbps;
+                updateRateControlVisibility();
+            });
+            container.appendChild(halfBitrateButton);
+        }
     }
 
     // Builds a media item row (label + inline stats + a collapsible detail panel with full
@@ -161,7 +180,7 @@
                 detailBox.textContent = 'Loading media info…';
                 apiGet('MediaConverter/Items/' + itemId + '/MediaInfo')
                     .then(function (info) {
-                        renderMediaInfoDetail(detailBox, info);
+                        renderMediaInfoDetail(detailBox, itemId, labelText, info);
                     })
                     .catch(function () {
                         detailBox.textContent = 'Unable to read media info.';
@@ -174,11 +193,99 @@
         return { row: row, detailBox: detailBox };
     }
 
-    function openConvertDialog(itemIds, label) {
+    // The single item's ffprobe stats currently backing the predicted-size estimate in the
+    // convert dialog; null for batch conversions or before it's loaded.
+    var currentItemMediaInfo = null;
+
+    function updateRateControlVisibility() {
+        var isBitrateMode = document.getElementById('rateControlSelect').value === 'Bitrate';
+        document.getElementById('videoBitrateContainer').style.display = isBitrateMode ? 'block' : 'none';
+        updatePredictedSize();
+    }
+
+    function updatePredictedSize() {
+        var textEl = document.getElementById('predictedSizeText');
+        if (!textEl) {
+            return;
+        }
+
+        if (selectedItemIds.length !== 1) {
+            textEl.textContent = 'Predicted size: only available when converting a single item.';
+            return;
+        }
+
+        if (!currentItemMediaInfo || !currentItemMediaInfo.DurationTicks) {
+            textEl.textContent = 'Predicted size: unavailable (source duration unknown).';
+            return;
+        }
+
+        if (document.getElementById('rateControlSelect').value !== 'Bitrate') {
+            textEl.textContent = 'Predicted size: switch rate control to "Target average bitrate" to estimate (quality-based size depends on content).';
+            return;
+        }
+
+        var videoKbps = parseInt(document.getElementById('videoBitrateInput').value, 10);
+        if (!(videoKbps > 0)) {
+            textEl.textContent = 'Predicted size: enter a target video bitrate above.';
+            return;
+        }
+
+        var durationSeconds = currentItemMediaInfo.DurationTicks / 10000000;
+        var audioCodec = document.getElementById('audioCodecSelect').value;
+        var audioKbps = 0;
+        var audioUnknown = false;
+
+        if (audioCodec === 'copy') {
+            if (currentItemMediaInfo.AudioBitRate) {
+                audioKbps = currentItemMediaInfo.AudioBitRate / 1000;
+            } else {
+                audioUnknown = true;
+            }
+        } else {
+            var enteredAudioKbps = parseInt(document.getElementById('audioBitrateInput').value, 10);
+            if (enteredAudioKbps > 0) {
+                audioKbps = enteredAudioKbps;
+            } else {
+                audioUnknown = true;
+            }
+        }
+
+        var predictedBytes = ((videoKbps + audioKbps) * 1000 / 8) * durationSeconds;
+        var sizeText = formatBytes(predictedBytes) || (predictedBytes.toFixed(0) + ' bytes');
+
+        textEl.textContent = 'Predicted size: ~' + sizeText + (audioUnknown ? ' (audio bitrate unknown, actual size may be larger)' : '');
+    }
+
+    function openConvertDialog(itemIds, label, mediaInfo) {
         selectedItemIds = itemIds;
         var title = itemIds.length > 1 ? 'Convert ' + itemIds.length + ' items' : 'Convert';
         document.getElementById('convertDialogTitle').textContent = label ? title + ' – ' + label : title;
         document.getElementById('convertDialog').style.display = 'block';
+
+        document.getElementById('rateControlSelect').value = 'Quality';
+        document.getElementById('videoBitrateInput').value = '';
+        updateRateControlVisibility();
+
+        currentItemMediaInfo = null;
+
+        if (itemIds.length === 1) {
+            if (mediaInfo) {
+                currentItemMediaInfo = mediaInfo;
+                updatePredictedSize();
+            } else {
+                apiGet('MediaConverter/Items/' + itemIds[0] + '/MediaInfo')
+                    .then(function (info) {
+                        currentItemMediaInfo = info;
+                        updatePredictedSize();
+                    })
+                    .catch(function () {
+                        currentItemMediaInfo = null;
+                        updatePredictedSize();
+                    });
+            }
+        } else {
+            updatePredictedSize();
+        }
     }
 
     function renderLibrary(items) {
@@ -488,6 +595,27 @@
         return panel;
     }
 
+    function buildProgressBar(percent) {
+        var track = document.createElement('div');
+        track.style.display = 'inline-block';
+        track.style.verticalAlign = 'middle';
+        track.style.marginLeft = '8px';
+        track.style.width = '160px';
+        track.style.height = '8px';
+        track.style.borderRadius = '4px';
+        track.style.background = 'rgba(255, 255, 255, 0.15)';
+        track.style.overflow = 'hidden';
+
+        var fill = document.createElement('div');
+        fill.style.height = '100%';
+        fill.style.background = '#00a4dc';
+        fill.style.width = Math.max(0, Math.min(100, percent)) + '%';
+        fill.style.transition = 'width 0.3s ease';
+
+        track.appendChild(fill);
+        return track;
+    }
+
     function renderJobs(jobs) {
         var container = document.getElementById('jobResults');
         container.innerHTML = '';
@@ -499,6 +627,10 @@
             var label = document.createElement('span');
             label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
             row.appendChild(label);
+
+            if (job.Status === 'Running') {
+                row.appendChild(buildProgressBar(job.ProgressPercent));
+            }
 
             if (job.Status === 'Queued' || job.Status === 'Running') {
                 var cancelButton = document.createElement('button');
@@ -552,6 +684,11 @@
             }
         });
 
+        document.getElementById('rateControlSelect').addEventListener('change', updateRateControlVisibility);
+        document.getElementById('videoBitrateInput').addEventListener('input', updatePredictedSize);
+        document.getElementById('audioCodecSelect').addEventListener('change', updatePredictedSize);
+        document.getElementById('audioBitrateInput').addEventListener('input', updatePredictedSize);
+
         document.getElementById('startConversionButton').addEventListener('click', function () {
             if (!selectedItemIds.length) {
                 return;
@@ -559,12 +696,17 @@
 
             var audioBitrateValue = document.getElementById('audioBitrateInput').value;
             var resolutionValue = document.getElementById('resolutionSelect').value;
+            var videoBitrateValue = document.getElementById('videoBitrateInput').value;
+            var maxVideoBitrateValue = document.getElementById('maxVideoBitrateInput').value;
 
             apiPost('MediaConverter/Convert/Batch', {
                 ItemIds: selectedItemIds,
                 Container: document.getElementById('containerSelect').value,
                 VideoCodec: document.getElementById('codecSelect').value,
                 Quality: parseInt(document.getElementById('qualityInput').value, 10),
+                RateControlMode: document.getElementById('rateControlSelect').value,
+                VideoBitrateKbps: videoBitrateValue ? parseInt(videoBitrateValue, 10) : null,
+                MaxVideoBitrateKbps: maxVideoBitrateValue ? parseInt(maxVideoBitrateValue, 10) : null,
                 Mode: document.getElementById('modeSelect').value,
                 Preset: document.getElementById('presetSelect').value || null,
                 ScaleHeight: resolutionValue ? parseInt(resolutionValue, 10) : null,

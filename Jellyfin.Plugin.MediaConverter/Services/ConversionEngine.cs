@@ -156,8 +156,26 @@ public class ConversionEngine
         {
             startInfo.ArgumentList.Add("-c:v");
             startInfo.ArgumentList.Add(encoder.Encoder);
-            startInfo.ArgumentList.Add(encoder.QualityFlag);
-            startInfo.ArgumentList.Add(job.Request.Quality.ToString(CultureInfo.InvariantCulture));
+
+            if (job.Request.RateControlMode == RateControlMode.Bitrate && job.Request.VideoBitrateKbps is > 0)
+            {
+                startInfo.ArgumentList.Add("-b:v");
+                startInfo.ArgumentList.Add(job.Request.VideoBitrateKbps.Value.ToString(CultureInfo.InvariantCulture) + "k");
+            }
+            else
+            {
+                startInfo.ArgumentList.Add(encoder.QualityFlag);
+                startInfo.ArgumentList.Add(job.Request.Quality.ToString(CultureInfo.InvariantCulture));
+            }
+
+            if (job.Request.MaxVideoBitrateKbps is > 0)
+            {
+                var maxRateArg = job.Request.MaxVideoBitrateKbps.Value.ToString(CultureInfo.InvariantCulture) + "k";
+                startInfo.ArgumentList.Add("-maxrate");
+                startInfo.ArgumentList.Add(maxRateArg);
+                startInfo.ArgumentList.Add("-bufsize");
+                startInfo.ArgumentList.Add((job.Request.MaxVideoBitrateKbps.Value * 2).ToString(CultureInfo.InvariantCulture) + "k");
+            }
 
             if (!string.IsNullOrWhiteSpace(job.Request.Preset) && encoder.SupportsPreset)
             {

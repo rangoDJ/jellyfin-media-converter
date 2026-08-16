@@ -26,8 +26,26 @@ public class ConversionRequest
     /// <summary>
     /// Gets or sets the quality value passed to the encoder (lower is higher quality for the
     /// QSV/NVENC/AMF style quality scales; higher is higher quality for CRF-style software encoding).
+    /// Only used when <see cref="RateControlMode"/> is <see cref="RateControlMode.Quality"/>.
     /// </summary>
     public int Quality { get; set; } = 23;
+
+    /// <summary>
+    /// Gets or sets whether the encoder targets a fixed quality value or a specific average bitrate.
+    /// </summary>
+    public RateControlMode RateControlMode { get; set; } = RateControlMode.Quality;
+
+    /// <summary>
+    /// Gets or sets the target average video bitrate in kbps, used only when
+    /// <see cref="RateControlMode"/> is <see cref="RateControlMode.Bitrate"/>.
+    /// </summary>
+    public int? VideoBitrateKbps { get; set; }
+
+    /// <summary>
+    /// Gets or sets an optional video bitrate cap in kbps (applied via -maxrate/-bufsize),
+    /// usable together with either rate control mode to bound peak bitrate.
+    /// </summary>
+    public int? MaxVideoBitrateKbps { get; set; }
 
     /// <summary>
     /// Gets or sets a value indicating whether the original file is replaced or a new variant is created.

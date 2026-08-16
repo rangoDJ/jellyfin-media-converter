@@ -57,7 +57,23 @@
                 </select>
             </div>
             <div class="inputContainer">
+                <label class="inputLabel" for="rateControlSelect">Rate control</label>
+                <select is="emby-select" id="rateControlSelect">
+                    <option value="Quality">Quality-based (CRF/CQ)</option>
+                    <option value="Bitrate">Target average bitrate</option>
+                </select>
+            </div>
+            <div class="inputContainer">
                 <input is="emby-input" type="number" id="qualityInput" label="Quality" value="23" />
+            </div>
+            <div class="inputContainer" id="videoBitrateContainer" style="display:none;">
+                <input is="emby-input" type="number" id="videoBitrateInput" label="Target video bitrate, kbps" />
+            </div>
+            <div class="inputContainer">
+                <span id="predictedSizeText" style="opacity:0.85;"></span>
+            </div>
+            <div class="inputContainer">
+                <input is="emby-input" type="number" id="maxVideoBitrateInput" label="Max video bitrate cap, kbps (optional, either mode)" />
             </div>
             <div class="inputContainer">
                 <label class="inputLabel" for="presetSelect">Encoder preset (speed vs. compression)</label>
