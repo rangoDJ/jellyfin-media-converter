@@ -577,6 +577,64 @@
         return wrapper;
     }
 
+    // Opens the side-by-side players in a modal overlay on top of the current page (not a new
+    // browser tab/page). Clicking the backdrop outside the modal, or the Close button, pauses
+    // both videos and dismisses it.
+    function openSideBySideModal(job) {
+        var overlay = document.createElement('div');
+        overlay.style.position = 'fixed';
+        overlay.style.inset = '0';
+        overlay.style.background = 'rgba(0, 0, 0, 0.75)';
+        overlay.style.zIndex = '10000';
+        overlay.style.display = 'flex';
+        overlay.style.alignItems = 'center';
+        overlay.style.justifyContent = 'center';
+
+        var modal = document.createElement('div');
+        modal.style.background = '#101010';
+        modal.style.borderRadius = '6px';
+        modal.style.padding = '16px';
+        modal.style.maxWidth = '95vw';
+        modal.style.maxHeight = '90vh';
+        modal.style.overflow = 'auto';
+
+        function closeModal() {
+            modal.querySelectorAll('video').forEach(function (video) {
+                video.pause();
+            });
+            overlay.remove();
+        }
+
+        overlay.addEventListener('click', function (event) {
+            if (event.target === overlay) {
+                closeModal();
+            }
+        });
+
+        var header = document.createElement('div');
+        header.style.display = 'flex';
+        header.style.justifyContent = 'space-between';
+        header.style.alignItems = 'center';
+        header.style.gap = '16px';
+        header.style.marginBottom = '8px';
+
+        var title = document.createElement('strong');
+        title.textContent = 'Original vs. new variant';
+        header.appendChild(title);
+
+        var closeButton = document.createElement('button');
+        closeButton.setAttribute('is', 'emby-button');
+        closeButton.className = 'raised';
+        closeButton.textContent = 'Close';
+        closeButton.addEventListener('click', closeModal);
+        header.appendChild(closeButton);
+
+        modal.appendChild(header);
+        modal.appendChild(buildSideBySidePlayers(job));
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+    }
+
     function renderVariantComparison(container, job, compare) {
         container.innerHTML = '';
 
@@ -593,29 +651,11 @@
         playButton.className = 'raised';
         playButton.style.marginTop = '4px';
         playButton.textContent = 'Play side by side';
-
-        var playersContainer = document.createElement('div');
-        playersContainer.style.display = 'none';
-
         playButton.addEventListener('click', function () {
-            var isHidden = playersContainer.style.display === 'none';
-            if (isHidden) {
-                if (!playersContainer.hasChildNodes()) {
-                    playersContainer.appendChild(buildSideBySidePlayers(job));
-                }
-                playersContainer.style.display = 'block';
-                playButton.textContent = 'Hide players';
-            } else {
-                playersContainer.querySelectorAll('video').forEach(function (video) {
-                    video.pause();
-                });
-                playersContainer.style.display = 'none';
-                playButton.textContent = 'Play side by side';
-            }
+            openSideBySideModal(job);
         });
 
         container.appendChild(playButton);
-        container.appendChild(playersContainer);
 
         var keepVariantButton = document.createElement('button');
         keepVariantButton.setAttribute('is', 'emby-button');
@@ -659,39 +699,6 @@
         container.appendChild(keepOriginalButton);
     }
 
-    function buildVariantReviewPanel(job) {
-        var panel = document.createElement('div');
-        panel.className = 'listItem';
-        panel.style.paddingLeft = '16px';
-
-        var compareButton = document.createElement('button');
-        compareButton.setAttribute('is', 'emby-button');
-        compareButton.className = 'raised';
-        compareButton.textContent = 'Compare original vs. new variant';
-
-        var resultsBox = document.createElement('div');
-        resultsBox.style.marginTop = '8px';
-
-        compareButton.addEventListener('click', function () {
-            compareButton.disabled = true;
-            apiGet('MediaConverter/Jobs/' + job.Id + '/Compare')
-                .then(function (compare) {
-                    clearError();
-                    renderVariantComparison(resultsBox, job, compare);
-                })
-                .catch(function (error) {
-                    showError('Comparing variant', error);
-                })
-                .then(function () {
-                    compareButton.disabled = false;
-                });
-        });
-
-        panel.appendChild(compareButton);
-        panel.appendChild(resultsBox);
-        return panel;
-    }
-
     function buildProgressBar(percent) {
         var track = document.createElement('div');
         track.style.display = 'inline-block';
@@ -713,6 +720,9 @@
         return track;
     }
 
+    // Builds a job's row plus its (initially hidden) expanded comparison results container, if
+    // applicable. The "Compare" button lives inline in the row itself, in the same spot the
+    // progress bar occupies while running, rather than as a separate panel underneath.
     function buildJobRow(job) {
         var row = document.createElement('div');
         row.className = 'listItem';
@@ -721,8 +731,39 @@
         label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
         row.appendChild(label);
 
+        var resultsBox = null;
+
         if (job.Status === 'Running') {
             row.appendChild(buildProgressBar(job.ProgressPercent));
+        } else if (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview') {
+            var compareButton = document.createElement('button');
+            compareButton.setAttribute('is', 'emby-button');
+            compareButton.className = 'raised';
+            compareButton.style.marginLeft = '8px';
+            compareButton.textContent = 'Compare original vs. new variant';
+
+            resultsBox = document.createElement('div');
+            resultsBox.style.display = 'none';
+            resultsBox.style.marginTop = '8px';
+            resultsBox.style.marginLeft = '16px';
+
+            compareButton.addEventListener('click', function () {
+                compareButton.disabled = true;
+                apiGet('MediaConverter/Jobs/' + job.Id + '/Compare')
+                    .then(function (compare) {
+                        clearError();
+                        resultsBox.style.display = 'block';
+                        renderVariantComparison(resultsBox, job, compare);
+                    })
+                    .catch(function (error) {
+                        showError('Comparing variant', error);
+                    })
+                    .then(function () {
+                        compareButton.disabled = false;
+                    });
+            });
+
+            row.appendChild(compareButton);
         }
 
         if (job.Status === 'Queued' || job.Status === 'Running') {
@@ -738,7 +779,7 @@
             row.appendChild(cancelButton);
         }
 
-        return row;
+        return { row: row, resultsBox: resultsBox };
     }
 
     function jobSignature(job) {
@@ -768,11 +809,8 @@
                     }
                 }
 
-                var panel = (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview')
-                    ? buildVariantReviewPanel(job)
-                    : null;
-
-                cached = { signature: signature, row: buildJobRow(job), panel: panel };
+                var built = buildJobRow(job);
+                cached = { signature: signature, row: built.row, panel: built.resultsBox };
                 jobRenderCache[job.Id] = cached;
             }
 

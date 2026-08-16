@@ -25,6 +25,41 @@ public class ConversionJob
     }
 
     /// <summary>
+    /// Initializes a new instance of the <see cref="ConversionJob"/> class from previously
+    /// persisted state, restoring it exactly rather than deriving fields from scratch.
+    /// </summary>
+    /// <param name="id">The job's original unique id.</param>
+    /// <param name="request">The request this job was created from.</param>
+    /// <param name="sourcePath">The resolved path of the source media file.</param>
+    /// <param name="outputPath">The path the converted file was (or would have been) written to.</param>
+    /// <param name="status">The job's persisted status.</param>
+    /// <param name="progressPercent">The job's persisted completion percentage.</param>
+    /// <param name="errorMessage">The job's persisted error message, if any.</param>
+    /// <param name="createdAt">The UTC time the job was originally created.</param>
+    /// <param name="variantResolution">The job's persisted variant keep/delete decision state.</param>
+    public ConversionJob(
+        Guid id,
+        ConversionRequest request,
+        string sourcePath,
+        string outputPath,
+        ConversionJobStatus status,
+        double progressPercent,
+        string? errorMessage,
+        DateTime createdAt,
+        VariantResolution variantResolution)
+    {
+        Id = id;
+        Request = request;
+        SourcePath = sourcePath;
+        OutputPath = outputPath;
+        Status = status;
+        ProgressPercent = progressPercent;
+        ErrorMessage = errorMessage;
+        CreatedAt = createdAt;
+        VariantResolution = variantResolution;
+    }
+
+    /// <summary>
     /// Gets the unique id of this job.
     /// </summary>
     public Guid Id { get; }

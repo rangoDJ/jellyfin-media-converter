@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using System.Threading;
 using System.Threading.Channels;
 using System.Threading.Tasks;
@@ -31,6 +32,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _cancellationSources = new();
     private readonly Channel<Guid> _queue = Channel.CreateUnbounded<Guid>();
     private readonly List<Task> _workers = new();
+    private readonly object _persistenceLock = new();
     private CancellationTokenSource? _stoppingSource;
 
     /// <summary>
@@ -73,6 +75,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         var job = new ConversionJob(request, item.Path, outputPath);
         _jobs[job.Id] = job;
         _cancellationSources[job.Id] = new CancellationTokenSource();
+        SaveJobs();
 
         if (!_queue.Writer.TryWrite(job.Id))
         {
@@ -124,6 +127,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
         FinalizeReplace(item, job);
         job.VariantResolution = VariantResolution.KeptVariant;
+        SaveJobs();
 
         _providerManager.QueueRefresh(item.Id, new MetadataRefreshOptions(_directoryService), RefreshPriority.High);
         return VariantResolveOutcome.Success;
@@ -144,12 +148,15 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
         TryDeleteFile(job.OutputPath);
         job.VariantResolution = VariantResolution.KeptOriginal;
+        SaveJobs();
         return VariantResolveOutcome.Success;
     }
 
     /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
+        LoadJobs();
+
         _stoppingSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         var workerCount = Math.Max(1, Plugin.Instance?.Configuration.MaxConcurrentJobs ?? 1);
 
@@ -209,6 +216,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     private async Task RunJobAsync(ConversionJob job, CancellationToken cancellationToken)
     {
         job.Status = ConversionJobStatus.Running;
+        SaveJobs();
         _libraryMonitor.ReportFileSystemChangeBeginning(job.SourcePath);
 
         try
@@ -255,6 +263,8 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             {
                 source.Dispose();
             }
+
+            SaveJobs();
         }
     }
 
@@ -307,5 +317,132 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
         var suffix = Plugin.Instance?.Configuration.TempFileSuffix ?? ".mediaconverter.tmp";
         return Path.Combine(directory, nameWithoutExtension + suffix + "." + container);
+    }
+
+    private static string? GetJobsFilePath()
+    {
+        var dataFolder = Plugin.Instance?.DataFolderPath;
+        return string.IsNullOrEmpty(dataFolder) ? null : Path.Combine(dataFolder, "jobs.json");
+    }
+
+    /// <summary>
+    /// Persists the current job list to disk so history survives a server restart. Called after
+    /// every state change (enqueue, status transition, variant decision) rather than continuously,
+    /// since progress ticks alone don't need to survive a restart.
+    /// </summary>
+    private void SaveJobs()
+    {
+        var path = GetJobsFilePath();
+        if (path is null)
+        {
+            return;
+        }
+
+        lock (_persistenceLock)
+        {
+            try
+            {
+                var snapshot = _jobs.Values.Select(j => new PersistedJob
+                {
+                    Id = j.Id,
+                    Request = j.Request,
+                    SourcePath = j.SourcePath,
+                    OutputPath = j.OutputPath,
+                    Status = j.Status,
+                    ProgressPercent = j.ProgressPercent,
+                    ErrorMessage = j.ErrorMessage,
+                    CreatedAt = j.CreatedAt,
+                    VariantResolution = j.VariantResolution
+                }).ToList();
+
+                Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+
+                var tempPath = path + ".tmp";
+                File.WriteAllText(tempPath, JsonSerializer.Serialize(snapshot));
+                File.Move(tempPath, path, true);
+            }
+            catch (IOException ex)
+            {
+                _logger.LogWarning(ex, "Unable to persist conversion job history");
+            }
+        }
+    }
+
+    /// <summary>
+    /// Restores the job list from disk on startup. Any job still marked Queued or Running when the
+    /// server last stopped had its ffmpeg process killed along with it, so those are reclassified
+    /// as failed rather than silently resumed, and any partial output file is cleaned up.
+    /// </summary>
+    private void LoadJobs()
+    {
+        var path = GetJobsFilePath();
+        if (path is null || !File.Exists(path))
+        {
+            return;
+        }
+
+        List<PersistedJob>? snapshot;
+
+        try
+        {
+            snapshot = JsonSerializer.Deserialize<List<PersistedJob>>(File.ReadAllText(path));
+        }
+        catch (Exception ex) when (ex is IOException or JsonException)
+        {
+            _logger.LogWarning(ex, "Unable to load persisted conversion job history");
+            return;
+        }
+
+        if (snapshot is null)
+        {
+            return;
+        }
+
+        foreach (var persisted in snapshot)
+        {
+            var status = persisted.Status;
+            var errorMessage = persisted.ErrorMessage;
+
+            if (status is ConversionJobStatus.Queued or ConversionJobStatus.Running)
+            {
+                status = ConversionJobStatus.Failed;
+                errorMessage = "Interrupted by a server restart.";
+                TryDeleteFile(persisted.OutputPath);
+            }
+
+            var job = new ConversionJob(
+                persisted.Id,
+                persisted.Request,
+                persisted.SourcePath,
+                persisted.OutputPath,
+                status,
+                persisted.ProgressPercent,
+                errorMessage,
+                persisted.CreatedAt,
+                persisted.VariantResolution);
+
+            _jobs[job.Id] = job;
+        }
+    }
+
+    private sealed class PersistedJob
+    {
+        public Guid Id { get; set; }
+
+        public ConversionRequest Request { get; set; } = new();
+
+        public string SourcePath { get; set; } = string.Empty;
+
+        public string OutputPath { get; set; } = string.Empty;
+
+        public ConversionJobStatus Status { get; set; }
+
+        public double ProgressPercent { get; set; }
+
+        public string? ErrorMessage { get; set; }
+
+        public DateTime CreatedAt { get; set; }
+
+        public VariantResolution VariantResolution { get; set; }
     }
 }
