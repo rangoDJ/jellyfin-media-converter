@@ -67,6 +67,26 @@ public class PreviewRemuxService
 
         var tempPath = cachedPath + ".tmp";
 
+        // Many audio codecs found in Matroska rips (DTS, TrueHD, etc.) have no valid sample entry
+        // in the ISO base media format, so ffmpeg's MP4 muxer rejects a stream-copy remux that
+        // includes them ("codec not currently supported in container"). Retry video-only in that
+        // case rather than giving up entirely - silent playback beats no playback.
+        var remuxed = await TryRemuxAsync(sourcePath, tempPath, includeAudio: true, cancellationToken).ConfigureAwait(false)
+            || await TryRemuxAsync(sourcePath, tempPath, includeAudio: false, cancellationToken).ConfigureAwait(false);
+
+        if (!remuxed)
+        {
+            _logger.LogWarning("Unable to remux {SourcePath} into a browser-playable MP4; falling back to direct playback", sourcePath);
+            TryDeleteFile(tempPath);
+            return sourcePath;
+        }
+
+        File.Move(tempPath, cachedPath, true);
+        return cachedPath;
+    }
+
+    private async Task<bool> TryRemuxAsync(string sourcePath, string tempPath, bool includeAudio, CancellationToken cancellationToken)
+    {
         var startInfo = new ProcessStartInfo
         {
             FileName = _mediaEncoder.EncoderPath,
@@ -81,8 +101,17 @@ public class PreviewRemuxService
         startInfo.ArgumentList.Add(sourcePath);
         startInfo.ArgumentList.Add("-map");
         startInfo.ArgumentList.Add("0:v:0");
-        startInfo.ArgumentList.Add("-map");
-        startInfo.ArgumentList.Add("0:a:0?");
+
+        if (includeAudio)
+        {
+            startInfo.ArgumentList.Add("-map");
+            startInfo.ArgumentList.Add("0:a:0?");
+        }
+        else
+        {
+            startInfo.ArgumentList.Add("-an");
+        }
+
         startInfo.ArgumentList.Add("-c");
         startInfo.ArgumentList.Add("copy");
         startInfo.ArgumentList.Add("-movflags");
@@ -91,21 +120,22 @@ public class PreviewRemuxService
         startInfo.ArgumentList.Add("mp4");
         startInfo.ArgumentList.Add(tempPath);
 
-        using (var process = new Process { StartInfo = startInfo })
-        {
-            process.Start();
-            await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
+        using var process = new Process { StartInfo = startInfo };
+        process.Start();
+        await process.WaitForExitAsync(cancellationToken).ConfigureAwait(false);
 
-            if (process.ExitCode != 0 || !File.Exists(tempPath))
-            {
-                _logger.LogWarning("Unable to remux {SourcePath} into a browser-playable MP4; falling back to direct playback", sourcePath);
-                TryDeleteFile(tempPath);
-                return sourcePath;
-            }
+        if (process.ExitCode == 0 && File.Exists(tempPath))
+        {
+            return true;
         }
 
-        File.Move(tempPath, cachedPath, true);
-        return cachedPath;
+        if (!includeAudio)
+        {
+            _logger.LogWarning("Video-only remux of {SourcePath} also failed", sourcePath);
+        }
+
+        TryDeleteFile(tempPath);
+        return false;
     }
 
     private static void TryDeleteFile(string path)
