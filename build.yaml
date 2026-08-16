@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.18.0"
+version: "1.0.19.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,12 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.19: "Half of each source's current bitrate" is now a proper
+  rate control option in the convert dialog, usable for season/series
+  batch conversions too - each item's target bitrate is resolved from
+  its own current bitrate individually, not a single shared value.
+  The inline media stats line now shows video/audio bitrate. Finished
+  jobs can now be removed from the jobs list.
   1.0.18: Added detailed logging across the dashboard API and the job
   lifecycle, visible in the Jellyfin console/logs: the full ffmpeg/
   ffprobe command line for every conversion and preview remux,
