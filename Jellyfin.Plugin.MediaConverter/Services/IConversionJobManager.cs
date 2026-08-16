@@ -9,6 +9,12 @@ namespace Jellyfin.Plugin.MediaConverter.Services;
 public interface IConversionJobManager
 {
     /// <summary>
+    /// Gets whether the queue is paused: any job currently running is left to finish, but no
+    /// further queued jobs are started until resumed.
+    /// </summary>
+    bool IsQueuePaused { get; }
+
+    /// <summary>
     /// Queues a new conversion job for the given library item.
     /// </summary>
     /// <param name="request">The conversion parameters.</param>
@@ -56,4 +62,11 @@ public interface IConversionJobManager
     /// <param name="jobId">The job id.</param>
     /// <returns>The outcome of the attempt.</returns>
     RemoveJobOutcome RemoveJob(Guid jobId);
+
+    /// <summary>
+    /// Pauses or resumes the queue. Pausing doesn't cancel a job already in progress - it only
+    /// stops the next queued job from starting once the current one finishes.
+    /// </summary>
+    /// <param name="paused">Whether the queue should be paused.</param>
+    void SetQueuePaused(bool paused);
 }

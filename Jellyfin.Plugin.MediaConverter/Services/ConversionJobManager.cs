@@ -34,6 +34,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     private readonly List<Task> _workers = new();
     private readonly object _persistenceLock = new();
     private CancellationTokenSource? _stoppingSource;
+    private volatile bool _queuePaused;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="ConversionJobManager"/> class.
@@ -62,6 +63,9 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         _encoderResolver = encoderResolver;
         _logger = logger;
     }
+
+    /// <inheritdoc />
+    public bool IsQueuePaused => _queuePaused;
 
     /// <inheritdoc />
     public ConversionJob Enqueue(ConversionRequest request)
@@ -181,6 +185,13 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     }
 
     /// <inheritdoc />
+    public void SetQueuePaused(bool paused)
+    {
+        _queuePaused = paused;
+        _logger.LogInformation("Conversion queue {State}", paused ? "paused (will stop after the current job finishes)" : "resumed");
+    }
+
+    /// <inheritdoc />
     public Task StartAsync(CancellationToken cancellationToken)
     {
         LoadJobs();
@@ -238,6 +249,13 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             }
 
             await RunJobAsync(job, cancellationSource.Token).ConfigureAwait(false);
+
+            // Pausing doesn't touch the job that just finished - it only blocks this worker from
+            // dequeuing the *next* job until resumed. Anything already queued stays Queued.
+            while (_queuePaused)
+            {
+                await Task.Delay(TimeSpan.FromSeconds(1), stoppingToken).ConfigureAwait(false);
+            }
         }
     }
 

@@ -616,4 +616,29 @@ public class MediaConverterController : ControllerBase
             _ => Conflict("This job is still queued or running; cancel it first.")
         };
     }
+
+    /// <summary>
+    /// Gets whether the queue is currently paused.
+    /// </summary>
+    /// <returns>The current paused state.</returns>
+    [HttpGet("Queue/Paused")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<object> GetQueuePaused()
+    {
+        return Ok(new { Paused = _jobManager.IsQueuePaused });
+    }
+
+    /// <summary>
+    /// Pauses or resumes the queue. Pausing doesn't cancel a job already in progress - it only
+    /// stops the next queued job from starting once the current one finishes.
+    /// </summary>
+    /// <param name="paused">Whether the queue should be paused.</param>
+    /// <returns>204 on success.</returns>
+    [HttpPost("Queue/Paused")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    public ActionResult SetQueuePaused([FromQuery] bool paused)
+    {
+        _jobManager.SetQueuePaused(paused);
+        return NoContent();
+    }
 }

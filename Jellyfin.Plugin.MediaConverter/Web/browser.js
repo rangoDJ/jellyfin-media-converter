@@ -1138,12 +1138,41 @@
         });
     }
 
+    var queuePaused = false;
+
+    function updateQueuePauseUi() {
+        var button = document.getElementById('queuePauseToggleButton');
+        if (!button) {
+            return;
+        }
+
+        var span = button.querySelector('span');
+        (span || button).textContent = queuePaused ? 'Resume queue' : 'Pause queue after current job';
+
+        var statusText = document.getElementById('queuePauseStatusText');
+        if (statusText) {
+            statusText.textContent = queuePaused
+                ? 'Paused - the current job (if any) will finish, then no further jobs will start.'
+                : '';
+        }
+    }
+
+    function refreshQueuePausedState() {
+        apiGet('MediaConverter/Queue/Paused')
+            .then(function (result) {
+                queuePaused = !!result.Paused;
+                updateQueuePauseUi();
+            })
+            .catch(function () {});
+    }
+
     function refreshJobs() {
         apiGet('MediaConverter/Jobs')
             .then(renderJobs)
             .catch(function (error) {
                 showError('Loading jobs', error);
             });
+        refreshQueuePausedState();
     }
 
     function search() {
@@ -1160,6 +1189,19 @@
 
     function init() {
         document.getElementById('jobsBulkActions').appendChild(buildBulkActionsBar());
+
+        document.getElementById('queuePauseToggleButton').addEventListener('click', function () {
+            var newState = !queuePaused;
+            apiPostNoContent('MediaConverter/Queue/Paused?paused=' + newState)
+                .then(function () {
+                    clearError();
+                    queuePaused = newState;
+                    updateQueuePauseUi();
+                })
+                .catch(function (error) {
+                    showError('Updating queue pause state', error);
+                });
+        });
 
         document.getElementById('searchButton').addEventListener('click', search);
 
