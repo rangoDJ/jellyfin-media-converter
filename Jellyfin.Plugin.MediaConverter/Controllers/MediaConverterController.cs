@@ -28,6 +28,7 @@ public class MediaConverterController : ControllerBase
     private readonly ILibraryManager _libraryManager;
     private readonly IConversionJobManager _jobManager;
     private readonly MediaProbeService _probeService;
+    private readonly PreviewRemuxService _remuxService;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="MediaConverterController"/> class.
@@ -35,11 +36,17 @@ public class MediaConverterController : ControllerBase
     /// <param name="libraryManager">Used to browse the library for convertible videos.</param>
     /// <param name="jobManager">Used to queue and track conversion jobs.</param>
     /// <param name="probeService">Used to read codec/quality stats directly via ffprobe.</param>
-    public MediaConverterController(ILibraryManager libraryManager, IConversionJobManager jobManager, MediaProbeService probeService)
+    /// <param name="remuxService">Used to make non-browser-friendly containers playable for previews.</param>
+    public MediaConverterController(
+        ILibraryManager libraryManager,
+        IConversionJobManager jobManager,
+        MediaProbeService probeService,
+        PreviewRemuxService remuxService)
     {
         _libraryManager = libraryManager;
         _jobManager = jobManager;
         _probeService = probeService;
+        _remuxService = remuxService;
     }
 
     /// <summary>
@@ -334,32 +341,48 @@ public class MediaConverterController : ControllerBase
 
     /// <summary>
     /// Streams a variant job's original source file for in-browser playback/preview, supporting
-    /// HTTP range requests so the video element can seek.
+    /// HTTP range requests so the video element can seek. Non-browser-friendly containers (e.g.
+    /// Matroska) are transparently remuxed to MP4 first via stream copy - no re-encoding.
     /// </summary>
     /// <param name="jobId">The job id.</param>
+    /// <param name="cancellationToken">Token used to cancel a pending remux.</param>
     /// <returns>The file stream, or 404 if the job or its source file no longer exists.</returns>
     [HttpGet("Jobs/{jobId}/Stream/Original")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult StreamOriginal([FromRoute] Guid jobId)
+    public async Task<ActionResult> StreamOriginal([FromRoute] Guid jobId, CancellationToken cancellationToken)
     {
         var job = _jobManager.GetJob(jobId);
-        return job is null ? NotFound() : StreamFile(job.SourcePath);
+        if (job is null)
+        {
+            return NotFound();
+        }
+
+        var playablePath = await _remuxService.GetPlayablePathAsync(job.SourcePath, jobId + "-original", cancellationToken).ConfigureAwait(false);
+        return StreamFile(playablePath);
     }
 
     /// <summary>
     /// Streams a variant job's new output file for in-browser playback/preview, supporting HTTP
-    /// range requests so the video element can seek.
+    /// range requests so the video element can seek. Non-browser-friendly containers (e.g.
+    /// Matroska) are transparently remuxed to MP4 first via stream copy - no re-encoding.
     /// </summary>
     /// <param name="jobId">The job id.</param>
+    /// <param name="cancellationToken">Token used to cancel a pending remux.</param>
     /// <returns>The file stream, or 404 if the job or its output file no longer exists.</returns>
     [HttpGet("Jobs/{jobId}/Stream/Variant")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
-    public ActionResult StreamVariant([FromRoute] Guid jobId)
+    public async Task<ActionResult> StreamVariant([FromRoute] Guid jobId, CancellationToken cancellationToken)
     {
         var job = _jobManager.GetJob(jobId);
-        return job is null ? NotFound() : StreamFile(job.OutputPath);
+        if (job is null)
+        {
+            return NotFound();
+        }
+
+        var playablePath = await _remuxService.GetPlayablePathAsync(job.OutputPath, jobId + "-variant", cancellationToken).ConfigureAwait(false);
+        return StreamFile(playablePath);
     }
 
     [SuppressMessage(

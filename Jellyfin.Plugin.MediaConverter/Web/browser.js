@@ -543,6 +543,13 @@
         wrapper.appendChild(originalPlayer.block);
         wrapper.appendChild(variantPlayer.block);
 
+        [originalPlayer.video, variantPlayer.video].forEach(function (video) {
+            var playPromise = video.play();
+            if (playPromise && playPromise.catch) {
+                playPromise.catch(function () {});
+            }
+        });
+
         var controlsRow = document.createElement('div');
         controlsRow.style.width = '100%';
 
@@ -629,7 +636,15 @@
         closeButton.addEventListener('click', closeModal);
         header.appendChild(closeButton);
 
+        var note = document.createElement('div');
+        note.style.opacity = '0.7';
+        note.style.fontSize = '0.85em';
+        note.style.marginBottom = '8px';
+        note.textContent = 'Streamed at full source quality (no re-encoding). Non-MP4 sources are repackaged ' +
+            'on first play, which can take a few seconds for large files; audio codecs the browser can\'t ' +
+            'decode (e.g. DTS) will be silent even though playback works.';
         modal.appendChild(header);
+        modal.appendChild(note);
         modal.appendChild(buildSideBySidePlayers(job));
         overlay.appendChild(modal);
         document.body.appendChild(overlay);
