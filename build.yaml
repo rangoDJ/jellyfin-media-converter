@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.10.0"
+version: "1.0.11.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,14 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.11: Clicking an episode/movie's name now shows its full ffprobe
+  codec/bitrate info (previously only a compact summary with no
+  bitrate). The convert dialog can now target an average video
+  bitrate instead of only a fixed quality value, with an optional max
+  bitrate cap, and shows a predicted output file size when doing so.
+  A "Convert at ~half bitrate" shortcut appears for HEVC/AV1 when the
+  source's bitrate is known. Running jobs now show an actual progress
+  bar instead of only a percentage number.
   1.0.10: The series episode browser now lists seasons first (with
   episode counts) instead of dumping every episode from every season
   into one long scrolling list. Click a season to see just its
