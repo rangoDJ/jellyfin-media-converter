@@ -90,6 +90,90 @@
         loadMediaInfo(itemId, stats);
     }
 
+    function formatBitrate(bitsPerSecond) {
+        if (!bitsPerSecond) {
+            return null;
+        }
+
+        if (bitsPerSecond >= 1000000) {
+            return (bitsPerSecond / 1000000).toFixed(2) + ' Mbps';
+        }
+
+        return (bitsPerSecond / 1000).toFixed(0) + ' kbps';
+    }
+
+    function renderMediaInfoDetail(container, info) {
+        container.innerHTML = '';
+
+        if (!info) {
+            container.textContent = 'Unable to read media info.';
+            return;
+        }
+
+        var videoBitrate = formatBitrate(info.VideoBitRate) || formatBitrate(info.OverallBitRate);
+        var audioBitrate = formatBitrate(info.AudioBitRate);
+
+        var lines = [
+            'Container: ' + (info.Container || 'unknown'),
+            'Video: ' + (info.VideoCodec ? info.VideoCodec.toUpperCase() : 'none') +
+                (info.Width && info.Height ? (' ' + info.Width + 'x' + info.Height) : '') +
+                (videoBitrate ? (' @ ' + videoBitrate) : ' (bitrate unknown)'),
+            'Audio: ' + (info.AudioCodec ? info.AudioCodec.toUpperCase() : 'none') +
+                (info.AudioChannels ? (' ' + info.AudioChannels + 'ch') : '') +
+                (audioBitrate ? (' @ ' + audioBitrate) : ' (bitrate unknown)'),
+            'File size: ' + (formatBytes(info.FileSizeBytes) || 'unknown')
+        ];
+
+        lines.forEach(function (line) {
+            var lineEl = document.createElement('div');
+            lineEl.textContent = line;
+            container.appendChild(lineEl);
+        });
+    }
+
+    // Builds a media item row (label + inline stats + a collapsible detail panel with full
+    // ffprobe codec/bitrate info, toggled by clicking the label) plus the detail panel element,
+    // which the caller appends as the row's sibling.
+    function buildMediaRow(itemId, labelText) {
+        var row = document.createElement('div');
+        row.className = 'listItem';
+
+        var label = document.createElement('span');
+        label.textContent = labelText;
+        label.style.cursor = 'pointer';
+        label.style.textDecoration = 'underline dotted';
+        label.title = 'Click for detailed codec/bitrate info';
+        row.appendChild(label);
+
+        appendStatsSpan(row, itemId);
+
+        var detailBox = document.createElement('div');
+        detailBox.style.display = 'none';
+        detailBox.style.marginTop = '4px';
+        detailBox.style.marginLeft = '16px';
+        detailBox.style.marginBottom = '8px';
+        detailBox.style.fontSize = '0.9em';
+        detailBox.style.opacity = '0.85';
+
+        label.addEventListener('click', function () {
+            if (detailBox.style.display === 'none') {
+                detailBox.style.display = 'block';
+                detailBox.textContent = 'Loading media info…';
+                apiGet('MediaConverter/Items/' + itemId + '/MediaInfo')
+                    .then(function (info) {
+                        renderMediaInfoDetail(detailBox, info);
+                    })
+                    .catch(function () {
+                        detailBox.textContent = 'Unable to read media info.';
+                    });
+            } else {
+                detailBox.style.display = 'none';
+            }
+        });
+
+        return { row: row, detailBox: detailBox };
+    }
+
     function openConvertDialog(itemIds, label) {
         selectedItemIds = itemIds;
         var title = itemIds.length > 1 ? 'Convert ' + itemIds.length + ' items' : 'Convert';
@@ -111,14 +195,17 @@
         }
 
         items.forEach(function (item) {
-            var row = document.createElement('div');
-            row.className = 'listItem';
-
-            var name = document.createElement('span');
-            name.textContent = item.Name + ' (' + item.Type + ')';
-            row.appendChild(name);
+            var row;
+            var detailBox = null;
 
             if (item.Type === 'Series') {
+                row = document.createElement('div');
+                row.className = 'listItem';
+
+                var name = document.createElement('span');
+                name.textContent = item.Name + ' (' + item.Type + ')';
+                row.appendChild(name);
+
                 var browseButton = document.createElement('button');
                 browseButton.setAttribute('is', 'emby-button');
                 browseButton.className = 'raised';
@@ -149,7 +236,9 @@
                 });
                 row.appendChild(convertAllButton);
             } else {
-                appendStatsSpan(row, item.Id);
+                var built = buildMediaRow(item.Id, item.Name + ' (' + item.Type + ')');
+                row = built.row;
+                detailBox = built.detailBox;
 
                 var button = document.createElement('button');
                 button.setAttribute('is', 'emby-button');
@@ -162,6 +251,9 @@
             }
 
             container.appendChild(row);
+            if (detailBox) {
+                container.appendChild(detailBox);
+            }
         });
     }
 
@@ -289,17 +381,10 @@
         container.appendChild(convertSeasonRow);
 
         seasonEpisodes.forEach(function (episode) {
-            var row = document.createElement('div');
-            row.className = 'listItem';
-
-            var label = document.createElement('span');
             var seasonEpisode = (episode.SeasonNumber != null && episode.EpisodeNumber != null)
                 ? 'S' + episode.SeasonNumber + 'E' + episode.EpisodeNumber + ' - '
                 : '';
-            label.textContent = seasonEpisode + episode.Name;
-            row.appendChild(label);
-
-            appendStatsSpan(row, episode.Id);
+            var built = buildMediaRow(episode.Id, seasonEpisode + episode.Name);
 
             var button = document.createElement('button');
             button.setAttribute('is', 'emby-button');
@@ -308,9 +393,10 @@
             button.addEventListener('click', function () {
                 openConvertDialog([episode.Id], episode.Name);
             });
-            row.appendChild(button);
+            built.row.appendChild(button);
 
-            container.appendChild(row);
+            container.appendChild(built.row);
+            container.appendChild(built.detailBox);
         });
 
         document.getElementById('episodesSection').style.display = 'block';
