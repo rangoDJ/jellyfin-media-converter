@@ -168,6 +168,7 @@ public class MediaConverterController : ControllerBase
     /// Queues a new conversion job.
     /// </summary>
     /// <param name="request">The conversion parameters.</param>
+    /// <param name="cancellationToken">Token used to cancel bitrate resolution.</param>
     /// <returns>The newly created job.</returns>
     [HttpPost("Convert")]
     [ProducesResponseType(StatusCodes.Status200OK)]
