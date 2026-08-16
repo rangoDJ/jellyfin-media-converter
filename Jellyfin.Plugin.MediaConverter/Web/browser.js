@@ -818,40 +818,57 @@
         return track;
     }
 
-    // Builds a job's row plus its (initially hidden) expanded comparison results container, if
-    // applicable. The "Compare" button lives inline in the row itself, in the same spot the
-    // progress bar occupies while running, rather than as a separate panel underneath.
+    // Builds a job's table row plus its (initially hidden) expanded comparison results box, if
+    // applicable. The comparison box is rendered by the caller as a separate full-width row
+    // underneath, since it holds multi-line text and video players that don't fit in a cell.
     function buildJobRow(job) {
-        var row = document.createElement('div');
-        row.className = 'listItem';
+        var row = document.createElement('tr');
+        var isPendingReview = job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview';
 
-        var label = document.createElement('span');
-        label.textContent = job.SourcePath + ' - ' + job.Status + ' (' + Math.round(job.ProgressPercent) + '%)';
-        row.appendChild(label);
-
-        var resultsBox = null;
-
-        if (job.Status === 'Running') {
-            row.appendChild(buildProgressBar(job.ProgressPercent));
-        } else if (job.Mode === 'Variant' && job.Status === 'Completed' && job.VariantResolution === 'PendingReview') {
+        var checkboxCell = document.createElement('td');
+        if (isPendingReview) {
             var selectCheckbox = document.createElement('input');
             selectCheckbox.type = 'checkbox';
             selectCheckbox.className = 'mcVariantCheckbox';
             selectCheckbox.setAttribute('data-job-id', job.Id);
-            selectCheckbox.title = 'Select for a bulk keep/delete action below';
-            selectCheckbox.style.marginLeft = '8px';
-            row.appendChild(selectCheckbox);
+            selectCheckbox.title = 'Select for a bulk keep/delete action above';
+            checkboxCell.appendChild(selectCheckbox);
+        }
+        row.appendChild(checkboxCell);
 
+        var fileCell = document.createElement('td');
+        fileCell.textContent = job.SourcePath;
+        fileCell.title = job.SourcePath;
+        row.appendChild(fileCell);
+
+        var statusCell = document.createElement('td');
+        statusCell.textContent = job.Status + (job.Status === 'Failed' && job.ErrorMessage ? (': ' + job.ErrorMessage) : '');
+        row.appendChild(statusCell);
+
+        var progressCell = document.createElement('td');
+        if (job.Status === 'Running') {
+            progressCell.appendChild(buildProgressBar(job.ProgressPercent));
+            var pctLabel = document.createElement('span');
+            pctLabel.style.marginLeft = '6px';
+            pctLabel.textContent = Math.round(job.ProgressPercent) + '%';
+            progressCell.appendChild(pctLabel);
+        } else {
+            progressCell.textContent = job.Status === 'Completed' ? '100%' : '-';
+        }
+        row.appendChild(progressCell);
+
+        var actionsCell = document.createElement('td');
+        var resultsBox = null;
+
+        if (isPendingReview) {
             var compareButton = document.createElement('button');
             compareButton.setAttribute('is', 'emby-button');
             compareButton.className = 'raised';
-            compareButton.style.marginLeft = '8px';
             compareButton.textContent = 'Compare original vs. new variant';
 
             resultsBox = document.createElement('div');
             resultsBox.style.display = 'none';
             resultsBox.style.marginTop = '8px';
-            resultsBox.style.marginLeft = '16px';
 
             compareButton.addEventListener('click', function () {
                 compareButton.disabled = true;
@@ -869,25 +886,26 @@
                     });
             });
 
-            row.appendChild(compareButton);
+            actionsCell.appendChild(compareButton);
         }
 
         if (job.Status === 'Queued' || job.Status === 'Running') {
             var cancelButton = document.createElement('button');
             cancelButton.setAttribute('is', 'emby-button');
             cancelButton.className = 'raised';
+            cancelButton.style.marginLeft = isPendingReview ? '8px' : '0';
             cancelButton.textContent = 'Cancel';
             cancelButton.addEventListener('click', function () {
                 apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
                     showError('Cancelling job', error);
                 });
             });
-            row.appendChild(cancelButton);
+            actionsCell.appendChild(cancelButton);
         } else {
             var removeButton = document.createElement('button');
             removeButton.setAttribute('is', 'emby-button');
             removeButton.className = 'raised';
-            removeButton.style.marginLeft = '8px';
+            removeButton.style.marginLeft = isPendingReview ? '8px' : '0';
             removeButton.textContent = 'Remove';
             removeButton.addEventListener('click', function () {
                 if (!window.confirm('Remove this job from the list? This does not delete any media files.')) {
@@ -904,8 +922,10 @@
                         showError('Removing job', error);
                     });
             });
-            row.appendChild(removeButton);
+            actionsCell.appendChild(removeButton);
         }
+
+        row.appendChild(actionsCell);
 
         return { row: row, resultsBox: resultsBox };
     }
@@ -939,18 +959,70 @@
         });
     }
 
+    // Fetches the current job list fresh (rather than trusting whatever's rendered) and removes
+    // every job matching filterFn. Used for the "remove all completed"/"remove all history"
+    // actions; jobs still awaiting a variant decision are always excluded by the caller's filter
+    // so their file isn't orphaned with no remaining way to resolve it.
+    function bulkRemoveJobs(filterFn, confirmMessage) {
+        apiGet('MediaConverter/Jobs')
+            .then(function (jobs) {
+                var targets = jobs.filter(filterFn);
+                if (!targets.length) {
+                    showError('Bulk remove', { message: 'No matching jobs to remove.' });
+                    return;
+                }
+
+                if (!window.confirm(confirmMessage + ' (' + targets.length + ' job' + (targets.length === 1 ? '' : 's') + ')')) {
+                    return;
+                }
+
+                Promise.all(targets.map(function (job) {
+                    return apiDelete('MediaConverter/Jobs/' + job.Id).then(function () {
+                        delete jobRenderCache[job.Id];
+                    });
+                })).then(function () {
+                    clearError();
+                    refreshJobs();
+                }).catch(function (error) {
+                    showError('Bulk remove', error);
+                    refreshJobs();
+                });
+            })
+            .catch(function (error) {
+                showError('Bulk remove', error);
+            });
+    }
+
+    function isFinishedNotPending(job) {
+        return job.VariantResolution !== 'PendingReview'
+            && (job.Status === 'Completed' || job.Status === 'Failed' || job.Status === 'Cancelled');
+    }
+
     function buildBulkActionsBar() {
         var bar = document.createElement('div');
-        bar.style.display = 'flex';
-        bar.style.flexWrap = 'wrap';
-        bar.style.gap = '8px';
-        bar.style.marginBottom = '8px';
 
-        var hint = document.createElement('span');
-        hint.style.opacity = '0.7';
-        hint.style.marginRight = '8px';
-        hint.textContent = 'Check the box on one or more pending jobs below, then:';
-        bar.appendChild(hint);
+        var variantRow = document.createElement('div');
+        variantRow.style.display = 'flex';
+        variantRow.style.flexWrap = 'wrap';
+        variantRow.style.alignItems = 'center';
+        variantRow.style.gap = '8px';
+        variantRow.style.marginBottom = '8px';
+
+        var selectAllLabel = document.createElement('label');
+        selectAllLabel.style.display = 'inline-flex';
+        selectAllLabel.style.alignItems = 'center';
+        selectAllLabel.style.gap = '4px';
+        var selectAllCheckbox = document.createElement('input');
+        selectAllCheckbox.type = 'checkbox';
+        selectAllCheckbox.title = 'Select or deselect every pending job below';
+        selectAllCheckbox.addEventListener('change', function () {
+            document.querySelectorAll('.mcVariantCheckbox').forEach(function (checkbox) {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+        });
+        selectAllLabel.appendChild(selectAllCheckbox);
+        selectAllLabel.appendChild(document.createTextNode('Select all pending'));
+        variantRow.appendChild(selectAllLabel);
 
         var keepVariantButton = document.createElement('button');
         keepVariantButton.setAttribute('is', 'emby-button');
@@ -959,7 +1031,7 @@
         keepVariantButton.addEventListener('click', function () {
             bulkResolveVariants('KeepVariant', 'Delete the original file and keep the new variant for every selected job?');
         });
-        bar.appendChild(keepVariantButton);
+        variantRow.appendChild(keepVariantButton);
 
         var keepOriginalButton = document.createElement('button');
         keepOriginalButton.setAttribute('is', 'emby-button');
@@ -968,7 +1040,39 @@
         keepOriginalButton.addEventListener('click', function () {
             bulkResolveVariants('KeepOriginal', 'Delete the new variant and keep the original file for every selected job?');
         });
-        bar.appendChild(keepOriginalButton);
+        variantRow.appendChild(keepOriginalButton);
+
+        bar.appendChild(variantRow);
+
+        var historyRow = document.createElement('div');
+        historyRow.style.display = 'flex';
+        historyRow.style.flexWrap = 'wrap';
+        historyRow.style.gap = '8px';
+        historyRow.style.marginBottom = '8px';
+
+        var removeCompletedButton = document.createElement('button');
+        removeCompletedButton.setAttribute('is', 'emby-button');
+        removeCompletedButton.className = 'raised';
+        removeCompletedButton.textContent = 'Remove all completed jobs';
+        removeCompletedButton.addEventListener('click', function () {
+            bulkRemoveJobs(
+                function (job) { return job.Status === 'Completed' && job.VariantResolution !== 'PendingReview'; },
+                'Remove all completed jobs from the list? Jobs still awaiting a variant keep/delete decision are left alone. This does not delete any media files.');
+        });
+        historyRow.appendChild(removeCompletedButton);
+
+        var removeHistoryButton = document.createElement('button');
+        removeHistoryButton.setAttribute('is', 'emby-button');
+        removeHistoryButton.className = 'raised';
+        removeHistoryButton.textContent = 'Remove all history';
+        removeHistoryButton.addEventListener('click', function () {
+            bulkRemoveJobs(
+                isFinishedNotPending,
+                'Remove all finished jobs (completed, failed, and cancelled) from the list? Jobs still awaiting a variant keep/delete decision are left alone. This does not delete any media files.');
+        });
+        historyRow.appendChild(removeHistoryButton);
+
+        bar.appendChild(historyRow);
 
         return bar;
     }
@@ -977,11 +1081,13 @@
         return [job.Status, Math.round(job.ProgressPercent), job.VariantResolution].join('|');
     }
 
-    // Keyed by job id: { signature, row, panel }. Reused across polls so that a job whose data
+    // Keyed by job id: { signature, row, panelRow }. Reused across polls so that a job whose data
     // hasn't changed (e.g. a completed job awaiting a variant decision) keeps its existing DOM -
     // rebuilding it every poll was wiping out the comparison results panel and would also reset
     // any embedded <video> players.
     var jobRenderCache = {};
+
+    var JOBS_TABLE_COLUMN_COUNT = 5;
 
     function renderJobs(jobs) {
         var container = document.getElementById('jobResults');
@@ -995,27 +1101,37 @@
             if (!cached || cached.signature !== signature) {
                 if (cached) {
                     cached.row.remove();
-                    if (cached.panel) {
-                        cached.panel.remove();
+                    if (cached.panelRow) {
+                        cached.panelRow.remove();
                     }
                 }
 
                 var built = buildJobRow(job);
-                cached = { signature: signature, row: built.row, panel: built.resultsBox };
+                var panelRow = null;
+
+                if (built.resultsBox) {
+                    panelRow = document.createElement('tr');
+                    var panelCell = document.createElement('td');
+                    panelCell.colSpan = JOBS_TABLE_COLUMN_COUNT;
+                    panelCell.appendChild(built.resultsBox);
+                    panelRow.appendChild(panelCell);
+                }
+
+                cached = { signature: signature, row: built.row, panelRow: panelRow };
                 jobRenderCache[job.Id] = cached;
             }
 
             container.appendChild(cached.row);
-            if (cached.panel) {
-                container.appendChild(cached.panel);
+            if (cached.panelRow) {
+                container.appendChild(cached.panelRow);
             }
         });
 
         Object.keys(jobRenderCache).forEach(function (id) {
             if (!seenIds[id]) {
                 jobRenderCache[id].row.remove();
-                if (jobRenderCache[id].panel) {
-                    jobRenderCache[id].panel.remove();
+                if (jobRenderCache[id].panelRow) {
+                    jobRenderCache[id].panelRow.remove();
                 }
                 delete jobRenderCache[id];
             }

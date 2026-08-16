@@ -2,6 +2,36 @@
 <html>
 <head>
     <title>Media Converter</title>
+    <style>
+        #jobsTable {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        #jobsTable th,
+        #jobsTable td {
+            text-align: left;
+            padding: 6px 10px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            vertical-align: middle;
+        }
+
+        #jobsTable th:nth-child(1),
+        #jobsTable td:nth-child(1) {
+            width: 28px;
+        }
+
+        #jobsTable td:nth-child(2) {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+
+        #jobsTableWrapper {
+            overflow-x: auto;
+        }
+    </style>
 </head>
 <body>
     <div id="mediaConverterPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
@@ -35,7 +65,20 @@
                 <div class="verticalSection">
                     <h2>Jobs</h2>
                     <div id="jobsBulkActions"></div>
-                    <div id="jobResults"></div>
+                    <div id="jobsTableWrapper">
+                        <table id="jobsTable">
+                            <thead>
+                                <tr>
+                                    <th></th>
+                                    <th>File</th>
+                                    <th>Status</th>
+                                    <th>Progress</th>
+                                    <th>Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="jobResults"></tbody>
+                        </table>
+                    </div>
                 </div>
             </div>
         </div>
