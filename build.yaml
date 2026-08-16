@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.11.0"
+version: "1.0.12.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,15 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.12: Fixed the variant comparison panel silently collapsing a
+  few seconds after opening it - the jobs list was fully rebuilding
+  its DOM on every 3-second poll even when nothing had changed,
+  wiping out the comparison results. Jobs are now only re-rendered
+  when their status/progress/variant decision actually changes. Also
+  added a "Play side by side" option to the variant comparison view,
+  streaming the original and new variant files into two video players
+  with a shared restart/pause control, so you can visually compare
+  playback before deciding which one to keep.
   1.0.11: Clicking an episode/movie's name now shows its full ffprobe
   codec/bitrate info (previously only a compact summary with no
   bitrate). The convert dialog can now target an average video
