@@ -873,6 +873,25 @@
         container.appendChild(keepOriginalButton);
     }
 
+    function formatEta(seconds) {
+        if (seconds == null) {
+            return '';
+        }
+
+        var totalMinutes = Math.round(seconds / 60);
+        if (totalMinutes < 1) {
+            return 'less than a minute left';
+        }
+
+        if (totalMinutes < 60) {
+            return '~' + totalMinutes + ' min left';
+        }
+
+        var hours = Math.floor(totalMinutes / 60);
+        var minutes = totalMinutes % 60;
+        return '~' + hours + 'h ' + minutes + 'm left';
+    }
+
     function buildProgressBar(percent) {
         var track = document.createElement('div');
         track.style.display = 'inline-block';
@@ -926,7 +945,8 @@
             progressCell.appendChild(buildProgressBar(job.ProgressPercent));
             var pctLabel = document.createElement('span');
             pctLabel.style.marginLeft = '6px';
-            pctLabel.textContent = Math.round(job.ProgressPercent) + '%';
+            var etaText = formatEta(job.EtaSeconds);
+            pctLabel.textContent = Math.round(job.ProgressPercent) + '%' + (etaText ? ' (' + etaText + ')' : '');
             progressCell.appendChild(pctLabel);
         } else {
             progressCell.textContent = job.Status === 'Completed' ? '100%' : '-';
@@ -978,10 +998,31 @@
             });
             actionsCell.appendChild(cancelButton);
         } else {
+            if (job.Status === 'Failed') {
+                var retryButton = document.createElement('button');
+                retryButton.setAttribute('is', 'emby-button');
+                retryButton.className = 'raised';
+                retryButton.style.marginLeft = isPendingReview ? '8px' : '0';
+                retryButton.textContent = 'Retry';
+                retryButton.addEventListener('click', function () {
+                    retryButton.disabled = true;
+                    apiPost('MediaConverter/Jobs/' + job.Id + '/Retry')
+                        .then(function () {
+                            clearError();
+                            refreshJobs();
+                        })
+                        .catch(function (error) {
+                            showError('Retrying job', error);
+                            retryButton.disabled = false;
+                        });
+                });
+                actionsCell.appendChild(retryButton);
+            }
+
             var removeButton = document.createElement('button');
             removeButton.setAttribute('is', 'emby-button');
             removeButton.className = 'raised';
-            removeButton.style.marginLeft = isPendingReview ? '8px' : '0';
+            removeButton.style.marginLeft = '8px';
             removeButton.textContent = 'Remove';
             removeButton.addEventListener('click', function () {
                 if (!window.confirm('Remove this job from the list? This does not delete any media files.')) {

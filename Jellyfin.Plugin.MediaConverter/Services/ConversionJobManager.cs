@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Text.Json;
@@ -185,6 +186,18 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     }
 
     /// <inheritdoc />
+    public ConversionJob? RetryJob(Guid jobId)
+    {
+        if (!_jobs.TryGetValue(jobId, out var job) || job.Status != ConversionJobStatus.Failed)
+        {
+            return null;
+        }
+
+        _logger.LogInformation("Job {JobId}: retrying as a new job", jobId);
+        return Enqueue(job.Request);
+    }
+
+    /// <inheritdoc />
     public void SetQueuePaused(bool paused)
     {
         _queuePaused = paused;
@@ -263,6 +276,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     {
         _logger.LogInformation("Job {JobId}: starting conversion of {SourcePath}", job.Id, job.SourcePath);
         job.Status = ConversionJobStatus.Running;
+        job.StartedAt = DateTime.UtcNow;
         SaveJobs();
         _libraryMonitor.ReportFileSystemChangeBeginning(job.SourcePath);
 
@@ -282,6 +296,26 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
             await _engine.RunAsync(job, encoder, totalDurationTicks, cancellationToken).ConfigureAwait(false);
             _logger.LogInformation("Job {JobId}: ffmpeg finished, writing to {OutputPath}", job.Id, job.OutputPath);
+
+            if (totalDurationTicks > 0)
+            {
+                var outputDurationTicks = await _engine.ProbeDurationTicksAsync(job.OutputPath, cancellationToken).ConfigureAwait(false);
+
+                // Below 90% of the source duration almost always means a truncated/corrupt output
+                // (a crashed encode, a full disk mid-write, etc.) rather than a legitimate encode -
+                // catching it here means the job is marked Failed instead of a silently broken
+                // Completed job replacing/sitting next to the original.
+                if (outputDurationTicks <= 0 || outputDurationTicks < totalDurationTicks * 0.9)
+                {
+                    throw new InvalidOperationException(string.Format(
+                        CultureInfo.InvariantCulture,
+                        "Output verification failed: the converted file's duration ({0:c}) doesn't match the source's ({1:c}) - it may be truncated or corrupt.",
+                        TimeSpan.FromTicks(Math.Max(outputDurationTicks, 0)),
+                        TimeSpan.FromTicks(totalDurationTicks)));
+                }
+
+                _logger.LogInformation("Job {JobId}: output duration verified ({OutputDuration} vs source {SourceDuration})", job.Id, TimeSpan.FromTicks(outputDurationTicks), TimeSpan.FromTicks(totalDurationTicks));
+            }
 
             if (job.Request.Mode == ConversionMode.Replace)
             {

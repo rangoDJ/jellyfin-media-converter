@@ -24,6 +24,20 @@ public class JobDto
         OutputPath = job.OutputPath;
         Mode = job.Request.Mode;
         VariantResolution = job.VariantResolution;
+        EtaSeconds = EstimateEtaSeconds(job);
+    }
+
+    private static double? EstimateEtaSeconds(ConversionJob job)
+    {
+        if (job.Status != ConversionJobStatus.Running || job.StartedAt is not { } startedAt || job.ProgressPercent <= 0)
+        {
+            return null;
+        }
+
+        var elapsed = DateTime.UtcNow - startedAt;
+        var estimatedTotal = elapsed / (job.ProgressPercent / 100.0);
+        var remaining = estimatedTotal - elapsed;
+        return Math.Max(remaining.TotalSeconds, 0);
     }
 
     /// <summary>
@@ -66,4 +80,11 @@ public class JobDto
     /// keep/delete decision.
     /// </summary>
     public VariantResolution VariantResolution { get; }
+
+    /// <summary>
+    /// Gets the estimated number of seconds remaining, extrapolated from the current progress
+    /// rate; <see langword="null"/> unless the job is currently running with at least some
+    /// progress recorded.
+    /// </summary>
+    public double? EtaSeconds { get; }
 }

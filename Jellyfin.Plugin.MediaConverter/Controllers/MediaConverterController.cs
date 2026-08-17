@@ -200,6 +200,65 @@ public class MediaConverterController : ControllerBase
         }
     }
 
+    /// <summary>
+    /// Checks that the source file's drive has enough free space to plausibly hold the conversion
+    /// output. This is a best-effort heuristic, not a reservation - available space can still be
+    /// consumed by other jobs queued in the same batch or by unrelated activity before this job
+    /// actually runs.
+    /// </summary>
+    /// <param name="filePath">The source item's file path.</param>
+    /// <returns>An error message if free space looks insufficient; otherwise <see langword="null"/>.</returns>
+    private static string? CheckDiskSpace(string filePath)
+    {
+        try
+        {
+            var directory = Path.GetDirectoryName(filePath);
+            if (string.IsNullOrEmpty(directory))
+            {
+                return null;
+            }
+
+            var sourceSize = new FileInfo(filePath).Length;
+            if (sourceSize <= 0)
+            {
+                return null;
+            }
+
+            // "Create new variant" mode needs room for the original plus the new file at once;
+            // "Replace" mode only ever needs one file's worth, but the transcoded file can
+            // temporarily exceed the source's size (e.g. converting to a less efficient codec), so
+            // the same conservative margin is used for both.
+            var requiredBytes = (long)(sourceSize * 1.2);
+
+            var drive = new DriveInfo(Path.GetPathRoot(Path.GetFullPath(directory)) ?? directory);
+            if (drive.AvailableFreeSpace < requiredBytes)
+            {
+                return string.Format(
+                    CultureInfo.InvariantCulture,
+                    "Not enough free space on \"{0}\": {1} available, roughly {2} needed for this conversion.",
+                    drive.Name,
+                    FormatBytes(drive.AvailableFreeSpace),
+                    FormatBytes(requiredBytes));
+            }
+
+            return null;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or ArgumentException)
+        {
+            // Can't determine free space (e.g. a network path DriveInfo can't resolve) - don't
+            // block the conversion over a check that couldn't run.
+            return null;
+        }
+    }
+
+    private static string FormatBytes(long bytes)
+    {
+        var gb = bytes / (1024d * 1024 * 1024);
+        return gb >= 1
+            ? string.Format(CultureInfo.InvariantCulture, "{0:F2} GB", gb)
+            : string.Format(CultureInfo.InvariantCulture, "{0:F0} MB", bytes / (1024d * 1024));
+    }
+
     private static LibraryItemDto? ToDto(BaseItem item)
     {
         return item switch
@@ -238,6 +297,13 @@ public class MediaConverterController : ControllerBase
         {
             _logger.LogWarning("Convert: {Error}", writabilityError);
             return BadRequest(writabilityError);
+        }
+
+        var diskSpaceError = CheckDiskSpace(item.Path);
+        if (diskSpaceError is not null)
+        {
+            _logger.LogWarning("Convert: {Error}", diskSpaceError);
+            return BadRequest(diskSpaceError);
         }
 
         var (rateControlMode, videoBitrateKbps) = await ResolveRateControlAsync(request.RateControlMode, request.VideoBitrateKbps, item.Path, cancellationToken).ConfigureAwait(false);
@@ -301,6 +367,12 @@ public class MediaConverterController : ControllerBase
             if (writabilityError is not null)
             {
                 return BadRequest(writabilityError);
+            }
+
+            var diskSpaceError = CheckDiskSpace(item.Path);
+            if (diskSpaceError is not null)
+            {
+                return BadRequest(diskSpaceError);
             }
 
             items.Add(item);
@@ -639,6 +711,20 @@ public class MediaConverterController : ControllerBase
     public ActionResult CancelJob([FromRoute] Guid jobId)
     {
         return _jobManager.CancelJob(jobId) ? NoContent() : NotFound();
+    }
+
+    /// <summary>
+    /// Re-queues a failed job as a brand new job with the same conversion parameters.
+    /// </summary>
+    /// <param name="jobId">The failed job's id.</param>
+    /// <returns>The newly created job, or 404 if <paramref name="jobId"/> wasn't found or isn't Failed.</returns>
+    [HttpPost("Jobs/{jobId}/Retry")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult<JobDto> RetryJob([FromRoute] Guid jobId)
+    {
+        var job = _jobManager.RetryJob(jobId);
+        return job is null ? NotFound() : Ok(new JobDto(job));
     }
 
     /// <summary>

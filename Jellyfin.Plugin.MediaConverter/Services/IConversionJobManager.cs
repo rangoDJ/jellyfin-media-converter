@@ -64,6 +64,13 @@ public interface IConversionJobManager
     RemoveJobOutcome RemoveJob(Guid jobId);
 
     /// <summary>
+    /// Re-queues a failed job as a brand new job with the same conversion parameters.
+    /// </summary>
+    /// <param name="jobId">The failed job's id.</param>
+    /// <returns>The newly created job, or <see langword="null"/> if <paramref name="jobId"/> wasn't found or isn't Failed.</returns>
+    ConversionJob? RetryJob(Guid jobId);
+
+    /// <summary>
     /// Pauses or resumes the queue. Pausing doesn't cancel a job already in progress - it only
     /// stops the next queued job from starting once the current one finishes.
     /// </summary>

@@ -90,6 +90,14 @@ public class ConversionJob
     public double ProgressPercent { get; set; }
 
     /// <summary>
+    /// Gets or sets the UTC time this job actually started running (as opposed to
+    /// <see cref="CreatedAt"/>, when it was queued). Used to estimate remaining time from the
+    /// current progress rate. Not persisted - restored jobs never resume mid-run, so there's
+    /// nothing meaningful to restore it to.
+    /// </summary>
+    public DateTime? StartedAt { get; set; }
+
+    /// <summary>
     /// Gets or sets the error message if the job failed.
     /// </summary>
     public string? ErrorMessage { get; set; }
