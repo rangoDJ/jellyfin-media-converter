@@ -71,6 +71,14 @@ public interface IConversionJobManager
     ConversionJob? RetryJob(Guid jobId);
 
     /// <summary>
+    /// Moves a still-queued job to the front of the queue, so it starts next once a worker is
+    /// free. Has no effect on jobs already running or finished.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns><see langword="true"/> if the job was queued (and is now at the front, whether or not it moved).</returns>
+    bool MoveJobToFront(Guid jobId);
+
+    /// <summary>
     /// Pauses or resumes the queue. Pausing doesn't cancel a job already in progress - it only
     /// stops the next queued job from starting once the current one finishes.
     /// </summary>

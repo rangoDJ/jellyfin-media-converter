@@ -22,6 +22,17 @@
         });
     }
 
+    // For PUT endpoints that return 204 No Content (Rules/{id}) - not forcing dataType: 'json'
+    // for the same reason apiPostNoContent doesn't (see below).
+    function apiPut(path, body) {
+        return ApiClient.ajax({
+            type: 'PUT',
+            url: ApiClient.getUrl(path),
+            data: JSON.stringify(body || {}),
+            contentType: 'application/json'
+        });
+    }
+
     // For POST endpoints that return 204 No Content (Cancel, KeepVariant, KeepOriginal) - unlike
     // apiPost, this doesn't force dataType: 'json', which would otherwise try to parse the empty
     // body and fail with "Unexpected end of JSON input" even though the request succeeded.
@@ -1042,10 +1053,29 @@
         }
 
         if (job.Status === 'Queued' || job.Status === 'Running') {
+            if (job.Status === 'Queued') {
+                var moveToFrontButton = document.createElement('button');
+                moveToFrontButton.setAttribute('is', 'emby-button');
+                moveToFrontButton.className = 'raised';
+                moveToFrontButton.style.marginLeft = isPendingReview ? '8px' : '0';
+                moveToFrontButton.textContent = 'Move to top';
+                moveToFrontButton.addEventListener('click', function () {
+                    apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/MoveToFront')
+                        .then(function () {
+                            clearError();
+                            refreshJobs();
+                        })
+                        .catch(function (error) {
+                            showError('Reordering queue', error);
+                        });
+                });
+                actionsCell.appendChild(moveToFrontButton);
+            }
+
             var cancelButton = document.createElement('button');
             cancelButton.setAttribute('is', 'emby-button');
             cancelButton.className = 'raised';
-            cancelButton.style.marginLeft = isPendingReview ? '8px' : '0';
+            cancelButton.style.marginLeft = (isPendingReview || job.Status === 'Queued') ? '8px' : '0';
             cancelButton.textContent = 'Cancel';
             cancelButton.addEventListener('click', function () {
                 apiPostNoContent('MediaConverter/Jobs/' + job.Id + '/Cancel').catch(function (error) {
@@ -1397,8 +1427,144 @@
             });
     }
 
+    function renderRules(rules) {
+        var container = document.getElementById('rulesResults');
+        container.innerHTML = '';
+
+        if (!rules.length) {
+            var empty = document.createElement('div');
+            empty.style.opacity = '0.7';
+            empty.textContent = 'No rules yet.';
+            container.appendChild(empty);
+            return;
+        }
+
+        rules.forEach(function (rule) {
+            var row = document.createElement('div');
+            row.className = 'listItem';
+
+            var label = document.createElement('span');
+            label.textContent = rule.Name + ' - ' + rule.VideoCodec.toUpperCase() + '/' + rule.Container +
+                ', quality ' + rule.Quality + ', ' + (rule.Mode === 'Replace' ? 'replace original' : 'new variant') +
+                (rule.PathContains ? (', path contains "' + rule.PathContains + '"') : '') +
+                (rule.Enabled ? '' : ' (disabled)');
+            label.style.opacity = rule.Enabled ? '1' : '0.6';
+            row.appendChild(label);
+
+            var toggleButton = document.createElement('button');
+            toggleButton.setAttribute('is', 'emby-button');
+            toggleButton.className = 'raised';
+            toggleButton.style.marginLeft = '8px';
+            toggleButton.textContent = rule.Enabled ? 'Disable' : 'Enable';
+            toggleButton.addEventListener('click', function () {
+                apiPut('MediaConverter/Rules/' + rule.Id, ruleToRequestBody(rule, { Enabled: !rule.Enabled }))
+                    .then(function () {
+                        clearError();
+                        refreshRules();
+                    })
+                    .catch(function (error) {
+                        showError('Updating rule', error);
+                    });
+            });
+            row.appendChild(toggleButton);
+
+            var deleteButton = document.createElement('button');
+            deleteButton.setAttribute('is', 'emby-button');
+            deleteButton.className = 'raised';
+            deleteButton.style.marginLeft = '8px';
+            deleteButton.textContent = 'Delete';
+            deleteButton.addEventListener('click', function () {
+                if (!window.confirm('Delete the rule "' + rule.Name + '"? This does not affect jobs already queued or converted.')) {
+                    return;
+                }
+
+                apiDelete('MediaConverter/Rules/' + rule.Id)
+                    .then(function () {
+                        clearError();
+                        refreshRules();
+                    })
+                    .catch(function (error) {
+                        showError('Deleting rule', error);
+                    });
+            });
+            row.appendChild(deleteButton);
+
+            container.appendChild(row);
+        });
+    }
+
+    function ruleToRequestBody(rule, overrides) {
+        return Object.assign({
+            Name: rule.Name,
+            Enabled: rule.Enabled,
+            Container: rule.Container,
+            VideoCodec: rule.VideoCodec,
+            Quality: rule.Quality,
+            Mode: rule.Mode,
+            PathContains: rule.PathContains
+        }, overrides || {});
+    }
+
+    function refreshRules() {
+        apiGet('MediaConverter/Rules')
+            .then(function (rules) {
+                renderRules(rules);
+            })
+            .catch(function (error) {
+                showError('Loading rules', error);
+            });
+    }
+
     function init() {
         document.getElementById('jobsBulkActions').appendChild(buildBulkActionsBar());
+
+        refreshRules();
+
+        document.getElementById('addRuleButton').addEventListener('click', function () {
+            var name = document.getElementById('ruleNameInput').value.trim();
+            if (!name) {
+                showError('Add rule', { message: 'Enter a rule name.' });
+                return;
+            }
+
+            apiPost('MediaConverter/Rules', {
+                Name: name,
+                Enabled: true,
+                Container: document.getElementById('ruleContainerSelect').value,
+                VideoCodec: document.getElementById('ruleCodecSelect').value,
+                Quality: parseInt(document.getElementById('ruleQualityInput').value, 10) || 23,
+                Mode: document.getElementById('ruleModeSelect').value,
+                PathContains: document.getElementById('rulePathContainsInput').value.trim() || null
+            }).then(function () {
+                clearError();
+                document.getElementById('ruleNameInput').value = '';
+                document.getElementById('rulePathContainsInput').value = '';
+                refreshRules();
+            }).catch(function (error) {
+                showError('Adding rule', error);
+            });
+        });
+
+        document.getElementById('runRulesNowButton').addEventListener('click', function () {
+            var button = document.getElementById('runRulesNowButton');
+            button.disabled = true;
+            var originalText = button.querySelector('span').textContent;
+            button.querySelector('span').textContent = 'Scanning… (check Jobs below shortly)';
+
+            apiPostNoContent('MediaConverter/Rules/RunNow')
+                .then(function () {
+                    clearError();
+                })
+                .catch(function (error) {
+                    showError('Running rules', error);
+                })
+                .then(function () {
+                    setTimeout(function () {
+                        button.disabled = false;
+                        button.querySelector('span').textContent = originalText;
+                    }, 3000);
+                });
+        });
 
         apiGet('MediaConverter/Config/DefaultVideoCodec')
             .then(function (codec) {

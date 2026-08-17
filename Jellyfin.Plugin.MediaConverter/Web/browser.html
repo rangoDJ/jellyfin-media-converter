@@ -91,6 +91,57 @@
                         </table>
                     </div>
                 </div>
+
+                <div class="verticalSection">
+                    <h2>Automatic Conversion Rules</h2>
+                    <p style="opacity:0.7;">
+                        Each rule scans the whole library and queues any movie/episode not already
+                        in its target codec (matching a path filter, if set). Rules run via the
+                        "Apply Media Converter rules" scheduled task - configure its schedule from
+                        Jellyfin's own Scheduled Tasks page - or trigger a scan immediately below.
+                        An item already queued/converted once is never re-queued by a rule.
+                    </p>
+                    <button is="emby-button" type="button" class="raised" id="runRulesNowButton">
+                        <span>Run rules now</span>
+                    </button>
+                    <div id="rulesResults" style="margin-top:8px;"></div>
+
+                    <h3>Add rule</h3>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="ruleNameInput" label="Rule name" />
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="text" id="rulePathContainsInput" label="Path contains (optional filter, e.g. a library folder)" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="ruleContainerSelect">Container</label>
+                        <select is="emby-select" id="ruleContainerSelect">
+                            <option value="mkv">mkv</option>
+                            <option value="mp4">mp4</option>
+                        </select>
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="ruleCodecSelect">Target codec</label>
+                        <select is="emby-select" id="ruleCodecSelect">
+                            <option value="hevc">HEVC (H.265)</option>
+                            <option value="h264">H.264</option>
+                            <option value="av1">AV1</option>
+                        </select>
+                    </div>
+                    <div class="inputContainer">
+                        <input is="emby-input" type="number" id="ruleQualityInput" label="Quality" value="23" />
+                    </div>
+                    <div class="inputContainer">
+                        <label class="inputLabel" for="ruleModeSelect">Mode</label>
+                        <select is="emby-select" id="ruleModeSelect">
+                            <option value="Replace">Replace original</option>
+                            <option value="Variant">Create new variant</option>
+                        </select>
+                    </div>
+                    <button is="emby-button" type="button" class="raised button-submit" id="addRuleButton">
+                        <span>Add rule</span>
+                    </button>
+                </div>
             </div>
         </div>
 

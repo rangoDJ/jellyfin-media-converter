@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+using Jellyfin.Plugin.MediaConverter.Services;
 using MediaBrowser.Model.Plugins;
 
 namespace Jellyfin.Plugin.MediaConverter.Configuration;
@@ -54,4 +56,10 @@ public class PluginConfiguration : BasePluginConfiguration
     /// placeholders {name} (original filename without extension), {codec}, and {ext} (new extension).
     /// </summary>
     public string VariantSuffixTemplate { get; set; }
+
+    /// <summary>
+    /// Gets the saved rules the "Apply Media Converter rules" scheduled task applies to the whole
+    /// library.
+    /// </summary>
+    public IList<ConversionRule> ConversionRules { get; } = new List<ConversionRule>();
 }

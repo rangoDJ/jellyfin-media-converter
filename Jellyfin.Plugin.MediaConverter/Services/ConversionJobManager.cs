@@ -6,7 +6,6 @@ using System.IO;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
-using System.Threading.Channels;
 using System.Threading.Tasks;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -31,7 +30,15 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     private readonly ILogger<ConversionJobManager> _logger;
     private readonly ConcurrentDictionary<Guid, ConversionJob> _jobs = new();
     private readonly ConcurrentDictionary<Guid, CancellationTokenSource> _cancellationSources = new();
-    private readonly Channel<Guid> _queue = Channel.CreateUnbounded<Guid>();
+
+    // Queued job ids, front-to-back (index 0 runs next). A plain lock-protected list rather than a
+    // Channel<T> so a queued job can be moved to the front - Channel<T> has no removal/reordering
+    // support. _queueSignal's count always matches _queuedJobIds.Count; a worker only ever takes
+    // index 0 after acquiring a permit, so concurrent workers still drain strictly in list order.
+    private readonly object _queueLock = new();
+    private readonly List<Guid> _queuedJobIds = new();
+    private readonly SemaphoreSlim _queueSignal = new(0);
+
     private readonly List<Task> _workers = new();
     private readonly object _persistenceLock = new();
     private CancellationTokenSource? _stoppingSource;
@@ -82,10 +89,12 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         _cancellationSources[job.Id] = new CancellationTokenSource();
         SaveJobs();
 
-        if (!_queue.Writer.TryWrite(job.Id))
+        lock (_queueLock)
         {
-            throw new InvalidOperationException("Unable to queue the conversion job.");
+            _queuedJobIds.Add(job.Id);
         }
+
+        _queueSignal.Release();
 
         _logger.LogInformation("Enqueued job {JobId}: {SourcePath} -> {OutputPath}", job.Id, job.SourcePath, job.OutputPath);
         return job;
@@ -198,6 +207,29 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     }
 
     /// <inheritdoc />
+    public bool MoveJobToFront(Guid jobId)
+    {
+        lock (_queueLock)
+        {
+            var index = _queuedJobIds.IndexOf(jobId);
+            if (index < 0)
+            {
+                // Not queued at all (already running/finished, or unknown) - nothing to move.
+                return false;
+            }
+
+            if (index > 0)
+            {
+                _queuedJobIds.RemoveAt(index);
+                _queuedJobIds.Insert(0, jobId);
+                _logger.LogInformation("Job {JobId}: moved to the front of the queue", jobId);
+            }
+
+            return true;
+        }
+    }
+
+    /// <inheritdoc />
     public void SetQueuePaused(bool paused)
     {
         _queuePaused = paused;
@@ -223,8 +255,6 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     /// <inheritdoc />
     public async Task StopAsync(CancellationToken cancellationToken)
     {
-        _queue.Writer.TryComplete();
-
         if (_stoppingSource is not null)
         {
             await _stoppingSource.CancelAsync().ConfigureAwait(false);
@@ -243,6 +273,7 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
     public void Dispose()
     {
         _stoppingSource?.Dispose();
+        _queueSignal.Dispose();
 
         foreach (var source in _cancellationSources.Values)
         {
@@ -254,14 +285,35 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
     private async Task ProcessQueueAsync(CancellationToken stoppingToken)
     {
-        await foreach (var jobId in _queue.Reader.ReadAllAsync(stoppingToken).ConfigureAwait(false))
+        while (true)
         {
-            if (!_jobs.TryGetValue(jobId, out var job) || !_cancellationSources.TryGetValue(jobId, out var cancellationSource))
+            try
             {
-                continue;
+                await _queueSignal.WaitAsync(stoppingToken).ConfigureAwait(false);
+            }
+            catch (OperationCanceledException)
+            {
+                return;
             }
 
-            await RunJobAsync(job, cancellationSource.Token).ConfigureAwait(false);
+            Guid jobId;
+            lock (_queueLock)
+            {
+                if (_queuedJobIds.Count == 0)
+                {
+                    // Shouldn't normally happen (the signal count always matches the list count),
+                    // but don't get stuck if it ever does.
+                    continue;
+                }
+
+                jobId = _queuedJobIds[0];
+                _queuedJobIds.RemoveAt(0);
+            }
+
+            if (_jobs.TryGetValue(jobId, out var job) && _cancellationSources.TryGetValue(jobId, out var cancellationSource))
+            {
+                await RunJobAsync(job, cancellationSource.Token).ConfigureAwait(false);
+            }
 
             // Pausing doesn't touch the job that just finished - it only blocks this worker from
             // dequeuing the *next* job until resumed. Anything already queued stays Queued.

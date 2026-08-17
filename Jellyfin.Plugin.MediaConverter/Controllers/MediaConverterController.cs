@@ -32,6 +32,7 @@ public class MediaConverterController : ControllerBase
     private readonly MediaProbeService _probeService;
     private readonly PreviewRemuxService _remuxService;
     private readonly PreviewTokenService _tokenService;
+    private readonly ConversionRuleService _ruleService;
     private readonly ILogger<MediaConverterController> _logger;
 
     /// <summary>
@@ -42,6 +43,7 @@ public class MediaConverterController : ControllerBase
     /// <param name="probeService">Used to read codec/quality stats directly via ffprobe.</param>
     /// <param name="remuxService">Used to make non-browser-friendly containers playable for previews.</param>
     /// <param name="tokenService">Used to authorize preview stream requests that can't carry an auth header.</param>
+    /// <param name="ruleService">Used to run a manual "apply rules now" scan.</param>
     /// <param name="logger">Logger for tracing dashboard API requests.</param>
     public MediaConverterController(
         ILibraryManager libraryManager,
@@ -49,6 +51,7 @@ public class MediaConverterController : ControllerBase
         MediaProbeService probeService,
         PreviewRemuxService remuxService,
         PreviewTokenService tokenService,
+        ConversionRuleService ruleService,
         ILogger<MediaConverterController> logger)
     {
         _libraryManager = libraryManager;
@@ -56,6 +59,7 @@ public class MediaConverterController : ControllerBase
         _probeService = probeService;
         _remuxService = remuxService;
         _tokenService = tokenService;
+        _ruleService = ruleService;
         _logger = logger;
     }
 
@@ -748,6 +752,19 @@ public class MediaConverterController : ControllerBase
     }
 
     /// <summary>
+    /// Moves a still-queued job to the front of the queue.
+    /// </summary>
+    /// <param name="jobId">The job id.</param>
+    /// <returns>204 if the job was queued, 404 if it wasn't found in the queue (already running/finished, or unknown).</returns>
+    [HttpPost("Jobs/{jobId}/MoveToFront")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult MoveJobToFront([FromRoute] Guid jobId)
+    {
+        return _jobManager.MoveJobToFront(jobId) ? NoContent() : NotFound();
+    }
+
+    /// <summary>
     /// Re-queues a failed job as a brand new job with the same conversion parameters.
     /// </summary>
     /// <param name="jobId">The failed job's id.</param>
@@ -803,5 +820,128 @@ public class MediaConverterController : ControllerBase
     {
         _jobManager.SetQueuePaused(paused);
         return NoContent();
+    }
+
+    /// <summary>
+    /// Lists all saved conversion rules.
+    /// </summary>
+    /// <returns>The saved rules.</returns>
+    [HttpGet("Rules")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<IEnumerable<ConversionRule>> GetRules()
+    {
+        return Ok(Plugin.Instance?.Configuration.ConversionRules ?? new List<ConversionRule>());
+    }
+
+    /// <summary>
+    /// Creates a new conversion rule.
+    /// </summary>
+    /// <param name="request">The rule's settings.</param>
+    /// <returns>The newly created rule.</returns>
+    [HttpPost("Rules")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<ConversionRule> CreateRule([FromBody] ConversionRuleRequestDto request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var rule = new ConversionRule
+        {
+            Name = request.Name,
+            Enabled = request.Enabled,
+            Container = request.Container,
+            VideoCodec = request.VideoCodec,
+            Quality = request.Quality,
+            Mode = request.Mode,
+            PathContains = request.PathContains
+        };
+
+        var configuration = Plugin.Instance?.Configuration;
+        configuration?.ConversionRules.Add(rule);
+        Plugin.Instance?.SaveConfiguration();
+
+        _logger.LogInformation("Rule '{RuleName}' created", rule.Name);
+        return Ok(rule);
+    }
+
+    /// <summary>
+    /// Updates an existing conversion rule.
+    /// </summary>
+    /// <param name="ruleId">The rule's id.</param>
+    /// <param name="request">The rule's new settings.</param>
+    /// <returns>204 on success, 404 if the rule wasn't found.</returns>
+    [HttpPut("Rules/{ruleId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult UpdateRule([FromRoute] Guid ruleId, [FromBody] ConversionRuleRequestDto request)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var rule = Plugin.Instance?.Configuration.ConversionRules.FirstOrDefault(r => r.Id == ruleId);
+        if (rule is null)
+        {
+            return NotFound();
+        }
+
+        rule.Name = request.Name;
+        rule.Enabled = request.Enabled;
+        rule.Container = request.Container;
+        rule.VideoCodec = request.VideoCodec;
+        rule.Quality = request.Quality;
+        rule.Mode = request.Mode;
+        rule.PathContains = request.PathContains;
+        Plugin.Instance?.SaveConfiguration();
+
+        _logger.LogInformation("Rule '{RuleName}' updated", rule.Name);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Deletes a conversion rule.
+    /// </summary>
+    /// <param name="ruleId">The rule's id.</param>
+    /// <returns>204 on success, 404 if the rule wasn't found.</returns>
+    [HttpDelete("Rules/{ruleId}")]
+    [ProducesResponseType(StatusCodes.Status204NoContent)]
+    [ProducesResponseType(StatusCodes.Status404NotFound)]
+    public ActionResult DeleteRule([FromRoute] Guid ruleId)
+    {
+        var rule = Plugin.Instance?.Configuration.ConversionRules.FirstOrDefault(r => r.Id == ruleId);
+        if (rule is null)
+        {
+            return NotFound();
+        }
+
+        Plugin.Instance?.Configuration.ConversionRules.Remove(rule);
+        Plugin.Instance?.SaveConfiguration();
+
+        _logger.LogInformation("Rule '{RuleName}' deleted", rule.Name);
+        return NoContent();
+    }
+
+    /// <summary>
+    /// Runs the configured rules against the library immediately, instead of waiting for the
+    /// scheduled task's own trigger. Runs in the background - the response doesn't wait for the
+    /// scan to finish, since it can take a while for a large library.
+    /// </summary>
+    /// <returns>202 once the scan has started.</returns>
+    [HttpPost("Rules/RunNow")]
+    [ProducesResponseType(StatusCodes.Status202Accepted)]
+    public ActionResult RunRulesNow()
+    {
+        _logger.LogInformation("Rule scan requested manually");
+
+        _ = Task.Run(() =>
+        {
+            try
+            {
+                _ruleService.ApplyRules(null, CancellationToken.None);
+            }
+            catch (Exception ex) when (ex is not OutOfMemoryException)
+            {
+                _logger.LogError(ex, "Manual rule scan failed");
+            }
+        });
+
+        return Accepted();
     }
 }
