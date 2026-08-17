@@ -27,19 +27,6 @@ public class JobDto
         EtaSeconds = EstimateEtaSeconds(job);
     }
 
-    private static double? EstimateEtaSeconds(ConversionJob job)
-    {
-        if (job.Status != ConversionJobStatus.Running || job.StartedAt is not { } startedAt || job.ProgressPercent <= 0)
-        {
-            return null;
-        }
-
-        var elapsed = DateTime.UtcNow - startedAt;
-        var estimatedTotal = elapsed / (job.ProgressPercent / 100.0);
-        var remaining = estimatedTotal - elapsed;
-        return Math.Max(remaining.TotalSeconds, 0);
-    }
-
     /// <summary>
     /// Gets the job's unique id.
     /// </summary>
@@ -87,4 +74,17 @@ public class JobDto
     /// progress recorded.
     /// </summary>
     public double? EtaSeconds { get; }
+
+    private static double? EstimateEtaSeconds(ConversionJob job)
+    {
+        if (job.Status != ConversionJobStatus.Running || job.StartedAt is not { } startedAt || job.ProgressPercent <= 0)
+        {
+            return null;
+        }
+
+        var elapsed = DateTime.UtcNow - startedAt;
+        var estimatedTotal = elapsed / (job.ProgressPercent / 100.0);
+        var remaining = estimatedTotal - elapsed;
+        return Math.Max(remaining.TotalSeconds, 0);
+    }
 }
