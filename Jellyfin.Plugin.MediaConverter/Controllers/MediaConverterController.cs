@@ -93,18 +93,21 @@ public class MediaConverterController : ControllerBase
                     break;
 
                 case Episode episode:
-                    var parentSeries = episode.SeriesId != Guid.Empty ? _libraryManager.GetItemById(episode.SeriesId) as Series : null;
-                    if (parentSeries is not null)
+                    // Group by the episode's own SeriesId/SeriesName rather than re-resolving the
+                    // series item through the library manager - some libraries have episodes whose
+                    // parent series link doesn't cleanly resolve/cast (e.g. after a metadata
+                    // reorganization), which silently fell through to listing them individually.
+                    if (episode.SeriesId != Guid.Empty && !string.IsNullOrEmpty(episode.SeriesName))
                     {
-                        if (seenSeriesIds.Add(parentSeries.Id))
+                        if (seenSeriesIds.Add(episode.SeriesId))
                         {
-                            results.Add(new LibraryItemDto(parentSeries.Id, parentSeries.Name, "Series", parentSeries.Path, null, null, null, null));
+                            results.Add(new LibraryItemDto(episode.SeriesId, episode.SeriesName, "Series", string.Empty, null, null, null, null));
                         }
                     }
                     else if (ToDto(episode) is { } episodeDto)
                     {
-                        // No resolvable parent series (e.g. an orphaned episode file) - fall back
-                        // to showing it directly rather than silently dropping the match.
+                        // No series linkage at all (e.g. an orphaned episode file) - fall back to
+                        // showing it directly rather than silently dropping the match.
                         results.Add(episodeDto);
                     }
 
