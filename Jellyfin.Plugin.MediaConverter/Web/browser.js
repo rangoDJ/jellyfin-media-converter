@@ -537,6 +537,13 @@
         document.getElementById('episodesSection').style.display = 'block';
     }
 
+    function getSelectedEpisodeIds() {
+        return Array.prototype.slice.call(document.querySelectorAll('.mcEpisodeCheckbox:checked'))
+            .map(function (checkbox) {
+                return checkbox.getAttribute('data-episode-id');
+            });
+    }
+
     function renderSeasonEpisodes(seriesId, seriesName, seasonKey, seasonName, seasonEpisodes, allEpisodes) {
         document.getElementById('episodesSeriesName').textContent = '- ' + seriesName + ', ' + seasonName;
         setBackButtonHandler(function () {
@@ -546,8 +553,13 @@
         var container = document.getElementById('episodeResults');
         container.innerHTML = '';
 
-        var convertSeasonRow = document.createElement('div');
-        convertSeasonRow.className = 'listItem';
+        var bulkRow = document.createElement('div');
+        bulkRow.style.display = 'flex';
+        bulkRow.style.flexWrap = 'wrap';
+        bulkRow.style.alignItems = 'center';
+        bulkRow.style.gap = '8px';
+        bulkRow.style.marginBottom = '8px';
+
         var convertSeasonButton = document.createElement('button');
         convertSeasonButton.setAttribute('is', 'emby-button');
         convertSeasonButton.className = 'raised';
@@ -555,14 +567,53 @@
         convertSeasonButton.addEventListener('click', function () {
             openConvertDialog(seasonEpisodes.map(function (e) { return e.Id; }), seriesName + ' – ' + seasonName);
         });
-        convertSeasonRow.appendChild(convertSeasonButton);
-        container.appendChild(convertSeasonRow);
+        bulkRow.appendChild(convertSeasonButton);
+
+        var selectAllLabel = document.createElement('label');
+        selectAllLabel.style.display = 'inline-flex';
+        selectAllLabel.style.alignItems = 'center';
+        selectAllLabel.style.gap = '4px';
+        var selectAllCheckbox = document.createElement('input');
+        selectAllCheckbox.type = 'checkbox';
+        selectAllCheckbox.title = 'Select or deselect every episode below';
+        selectAllCheckbox.addEventListener('change', function () {
+            document.querySelectorAll('.mcEpisodeCheckbox').forEach(function (checkbox) {
+                checkbox.checked = selectAllCheckbox.checked;
+            });
+        });
+        selectAllLabel.appendChild(selectAllCheckbox);
+        selectAllLabel.appendChild(document.createTextNode('Select all'));
+        bulkRow.appendChild(selectAllLabel);
+
+        var convertSelectedButton = document.createElement('button');
+        convertSelectedButton.setAttribute('is', 'emby-button');
+        convertSelectedButton.className = 'raised';
+        convertSelectedButton.textContent = 'Convert selected episodes';
+        convertSelectedButton.addEventListener('click', function () {
+            var selectedIds = getSelectedEpisodeIds();
+            if (!selectedIds.length) {
+                showError('Convert selected episodes', { message: 'No episodes selected. Check the boxes next to the episodes you want to convert.' });
+                return;
+            }
+
+            openConvertDialog(selectedIds, seriesName + ' – ' + seasonName + ' (' + selectedIds.length + ' selected)');
+        });
+        bulkRow.appendChild(convertSelectedButton);
+
+        container.appendChild(bulkRow);
 
         seasonEpisodes.forEach(function (episode) {
             var seasonEpisode = (episode.SeasonNumber != null && episode.EpisodeNumber != null)
                 ? 'S' + episode.SeasonNumber + 'E' + episode.EpisodeNumber + ' - '
                 : '';
             var built = buildMediaRow(episode.Id, seasonEpisode + episode.Name);
+
+            var checkbox = document.createElement('input');
+            checkbox.type = 'checkbox';
+            checkbox.className = 'mcEpisodeCheckbox';
+            checkbox.setAttribute('data-episode-id', episode.Id);
+            checkbox.style.marginRight = '8px';
+            built.row.insertBefore(checkbox, built.row.firstChild);
 
             var button = document.createElement('button');
             button.setAttribute('is', 'emby-button');

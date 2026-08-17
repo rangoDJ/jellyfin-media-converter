@@ -59,12 +59,13 @@ public class MediaConverterController : ControllerBase
     }
 
     /// <summary>
-    /// Searches the library by name, matching movies, episodes, and series. Series results don't
-    /// carry a convertible file directly - use <see cref="GetSeriesEpisodes"/> to list their
-    /// episodes and pick one to convert.
+    /// Searches the library by name, matching movies, episodes, and series. An episode match is
+    /// collapsed into its parent series (rather than listed individually) so a show with many
+    /// matching episodes still shows up as one result - use <see cref="GetSeriesEpisodes"/> to
+    /// list its episodes and pick one to convert.
     /// </summary>
     /// <param name="searchTerm">An optional case-insensitive name filter.</param>
-    /// <returns>The matching movies, episodes, and series.</returns>
+    /// <returns>The matching movies and series.</returns>
     [HttpGet("Library")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     public ActionResult<IEnumerable<LibraryItemDto>> GetLibrary([FromQuery] string? searchTerm)
@@ -76,11 +77,50 @@ public class MediaConverterController : ControllerBase
             SearchTerm = searchTerm
         };
 
-        var items = _libraryManager.GetItemList(query)
-            .Select(ToDto)
-            .Where(dto => dto is not null);
+        var results = new List<LibraryItemDto>();
+        var seenSeriesIds = new HashSet<Guid>();
 
-        return Ok(items);
+        foreach (var item in _libraryManager.GetItemList(query))
+        {
+            switch (item)
+            {
+                case Series series:
+                    if (seenSeriesIds.Add(series.Id))
+                    {
+                        results.Add(new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null));
+                    }
+
+                    break;
+
+                case Episode episode:
+                    var parentSeries = episode.SeriesId != Guid.Empty ? _libraryManager.GetItemById(episode.SeriesId) as Series : null;
+                    if (parentSeries is not null)
+                    {
+                        if (seenSeriesIds.Add(parentSeries.Id))
+                        {
+                            results.Add(new LibraryItemDto(parentSeries.Id, parentSeries.Name, "Series", parentSeries.Path, null, null, null, null));
+                        }
+                    }
+                    else if (ToDto(episode) is { } episodeDto)
+                    {
+                        // No resolvable parent series (e.g. an orphaned episode file) - fall back
+                        // to showing it directly rather than silently dropping the match.
+                        results.Add(episodeDto);
+                    }
+
+                    break;
+
+                case Video video:
+                    if (ToDto(video) is { } videoDto)
+                    {
+                        results.Add(videoDto);
+                    }
+
+                    break;
+            }
+        }
+
+        return Ok(results);
     }
 
     /// <summary>
