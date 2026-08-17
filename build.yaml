@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.31.0"
+version: "1.0.32.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,16 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.32: Added aggregate stats (total space saved, average
+  output/source size ratio) shown above the jobs list. Media info now
+  reports subtitle tracks (language + codec) alongside the existing
+  video/audio codec tags, in both the compact inline stats and the
+  expanded detail view. Search results and season episode lists now
+  flag items already encoded in the configured target codec with an
+  "(already X)" badge, with a "Hide items already in the target codec"
+  toggle to filter them out. A failed job's status cell is now a
+  compact "Failed (click for details)" toggle instead of a giant
+  inline error dump.
   1.0.31: Added a disk-space pre-check alongside the existing
   writability check, so a conversion is rejected up front if the
   destination drive doesn't plausibly have room instead of failing
