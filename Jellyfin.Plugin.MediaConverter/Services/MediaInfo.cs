@@ -68,9 +68,9 @@ public class MediaInfo
     public long? AudioBitRate { get; set; }
 
     /// <summary>
-    /// Gets or sets the subtitle tracks present in the file, each formatted as "language (codec)"
+    /// Gets the subtitle tracks present in the file, each formatted as "language (codec)"
     /// (e.g. "eng (subrip)"), or "und (codec)" when no language tag is present. Empty if the file
     /// has no subtitle streams.
     /// </summary>
-    public List<string> SubtitleTracks { get; set; } = new();
+    public IList<string> SubtitleTracks { get; } = new List<string>();
 }
