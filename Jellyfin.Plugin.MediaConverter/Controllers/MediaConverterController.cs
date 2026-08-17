@@ -11,6 +11,7 @@ using Jellyfin.Plugin.MediaConverter.Services;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.TV;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Entities;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -59,6 +60,18 @@ public class MediaConverterController : ControllerBase
     }
 
     /// <summary>
+    /// Gets the configured default target video codec, so the dashboard can flag search results
+    /// that are already encoded in it.
+    /// </summary>
+    /// <returns>The configured default codec (e.g. "hevc").</returns>
+    [HttpGet("Config/DefaultVideoCodec")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<string> GetDefaultVideoCodec()
+    {
+        return Ok(Plugin.Instance?.Configuration.DefaultVideoCodec ?? "hevc");
+    }
+
+    /// <summary>
     /// Searches the library by name, matching movies, episodes, and series. An episode match is
     /// collapsed into its parent series (rather than listed individually) so a show with many
     /// matching episodes still shows up as one result - use <see cref="GetSeriesEpisodes"/> to
@@ -87,7 +100,7 @@ public class MediaConverterController : ControllerBase
                 case Series series:
                     if (seenSeriesIds.Add(series.Id))
                     {
-                        results.Add(new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null));
+                        results.Add(new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null, null));
                     }
 
                     break;
@@ -101,7 +114,7 @@ public class MediaConverterController : ControllerBase
                     {
                         if (seenSeriesIds.Add(episode.SeriesId))
                         {
-                            results.Add(new LibraryItemDto(episode.SeriesId, episode.SeriesName, "Series", string.Empty, null, null, null, null));
+                            results.Add(new LibraryItemDto(episode.SeriesId, episode.SeriesName, "Series", string.Empty, null, null, null, null, null));
                         }
                     }
                     else if (ToDto(episode) is { } episodeDto)
@@ -263,11 +276,21 @@ public class MediaConverterController : ControllerBase
     {
         return item switch
         {
-            Series series => new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null),
-            Episode episode => new LibraryItemDto(episode.Id, episode.Name, "Episode", episode.Path, episode.RunTimeTicks, episode.SeriesName, episode.ParentIndexNumber, episode.IndexNumber),
-            Video video => new LibraryItemDto(video.Id, video.Name, "Movie", video.Path, video.RunTimeTicks, null, null, null),
+            Series series => new LibraryItemDto(series.Id, series.Name, "Series", series.Path, null, null, null, null, null),
+            Episode episode => new LibraryItemDto(episode.Id, episode.Name, "Episode", episode.Path, episode.RunTimeTicks, episode.SeriesName, episode.ParentIndexNumber, episode.IndexNumber, GetIndexedVideoCodec(episode)),
+            Video video => new LibraryItemDto(video.Id, video.Name, "Movie", video.Path, video.RunTimeTicks, null, null, null, GetIndexedVideoCodec(video)),
             _ => null
         };
+    }
+
+    /// <summary>
+    /// Reads the item's video codec from Jellyfin's own already-indexed media stream metadata
+    /// (a lightweight repository lookup, not a live ffprobe spawn), so it's cheap enough to include
+    /// on every item in a search-results list.
+    /// </summary>
+    private static string? GetIndexedVideoCodec(Video video)
+    {
+        return video.GetMediaStreams().FirstOrDefault(s => s.Type == MediaStreamType.Video)?.Codec;
     }
 
     /// <summary>
@@ -684,6 +707,17 @@ public class MediaConverterController : ControllerBase
     public ActionResult<IEnumerable<JobDto>> GetJobs()
     {
         return Ok(_jobManager.GetJobs().Select(j => new JobDto(j)));
+    }
+
+    /// <summary>
+    /// Gets aggregate space-saved statistics across all finished conversion jobs.
+    /// </summary>
+    /// <returns>The aggregate stats.</returns>
+    [HttpGet("Stats")]
+    [ProducesResponseType(StatusCodes.Status200OK)]
+    public ActionResult<ConversionStatsDto> GetStats()
+    {
+        return Ok(new ConversionStatsDto(_jobManager.GetJobs()));
     }
 
     /// <summary>

@@ -37,6 +37,8 @@ public class ConversionJob
     /// <param name="errorMessage">The job's persisted error message, if any.</param>
     /// <param name="createdAt">The UTC time the job was originally created.</param>
     /// <param name="variantResolution">The job's persisted variant keep/delete decision state.</param>
+    /// <param name="sourceSizeBytes">The persisted source file size, if known.</param>
+    /// <param name="outputSizeBytes">The persisted output file size, if known.</param>
     public ConversionJob(
         Guid id,
         ConversionRequest request,
@@ -46,7 +48,9 @@ public class ConversionJob
         double progressPercent,
         string? errorMessage,
         DateTime createdAt,
-        VariantResolution variantResolution)
+        VariantResolution variantResolution,
+        long? sourceSizeBytes,
+        long? outputSizeBytes)
     {
         Id = id;
         Request = request;
@@ -57,6 +61,8 @@ public class ConversionJob
         ErrorMessage = errorMessage;
         CreatedAt = createdAt;
         VariantResolution = variantResolution;
+        SourceSizeBytes = sourceSizeBytes;
+        OutputSizeBytes = outputSizeBytes;
     }
 
     /// <summary>
@@ -96,6 +102,18 @@ public class ConversionJob
     /// nothing meaningful to restore it to.
     /// </summary>
     public DateTime? StartedAt { get; set; }
+
+    /// <summary>
+    /// Gets or sets the source file's size in bytes, captured just before conversion starts, for
+    /// space-saved reporting. <see langword="null"/> if it couldn't be read.
+    /// </summary>
+    public long? SourceSizeBytes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the converted output file's size in bytes, captured once conversion finishes,
+    /// for space-saved reporting. <see langword="null"/> if it couldn't be read.
+    /// </summary>
+    public long? OutputSizeBytes { get; set; }
 
     /// <summary>
     /// Gets or sets the error message if the job failed.

@@ -287,6 +287,8 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
             var encoder = _encoderResolver.Resolve(job.Request.VideoCodec);
             _logger.LogInformation("Job {JobId}: resolved encoder {Encoder} for codec {Codec}", job.Id, encoder.Encoder, job.Request.VideoCodec);
 
+            job.SourceSizeBytes = TryGetFileSize(job.SourcePath);
+
             var totalDurationTicks = item.RunTimeTicks ?? 0;
             if (totalDurationTicks <= 0)
             {
@@ -316,6 +318,8 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
 
                 _logger.LogInformation("Job {JobId}: output duration verified ({OutputDuration} vs source {SourceDuration})", job.Id, TimeSpan.FromTicks(outputDurationTicks), TimeSpan.FromTicks(totalDurationTicks));
             }
+
+            job.OutputSizeBytes = TryGetFileSize(job.OutputPath);
 
             if (job.Request.Mode == ConversionMode.Replace)
             {
@@ -385,6 +389,18 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         }
     }
 
+    private static long? TryGetFileSize(string path)
+    {
+        try
+        {
+            return new FileInfo(path).Length;
+        }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException)
+        {
+            return null;
+        }
+    }
+
     private static string BuildOutputPath(Video item, ConversionRequest request)
     {
         var directory = Path.GetDirectoryName(item.Path)
@@ -439,7 +455,9 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
                     ProgressPercent = j.ProgressPercent,
                     ErrorMessage = j.ErrorMessage,
                     CreatedAt = j.CreatedAt,
-                    VariantResolution = j.VariantResolution
+                    VariantResolution = j.VariantResolution,
+                    SourceSizeBytes = j.SourceSizeBytes,
+                    OutputSizeBytes = j.OutputSizeBytes
                 }).ToList();
 
                 Directory.CreateDirectory(Path.GetDirectoryName(path)!);
@@ -517,7 +535,9 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
                 persisted.ProgressPercent,
                 errorMessage,
                 persisted.CreatedAt,
-                persisted.VariantResolution);
+                persisted.VariantResolution,
+                persisted.SourceSizeBytes,
+                persisted.OutputSizeBytes);
 
             _jobs[job.Id] = job;
         }
@@ -542,5 +562,9 @@ public sealed class ConversionJobManager : IConversionJobManager, IHostedService
         public DateTime CreatedAt { get; set; }
 
         public VariantResolution VariantResolution { get; set; }
+
+        public long? SourceSizeBytes { get; set; }
+
+        public long? OutputSizeBytes { get; set; }
     }
 }

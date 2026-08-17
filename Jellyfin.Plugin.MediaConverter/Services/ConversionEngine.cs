@@ -146,7 +146,7 @@ public class ConversionEngine
         {
             _logger.LogError("ffmpeg exited with code {ExitCode} while converting job {JobId}", process.ExitCode, job.Id);
             throw new InvalidOperationException(
-                string.Format(CultureInfo.InvariantCulture, "ffmpeg exited with code {0}: {1}", process.ExitCode, stderr.ToString()));
+                string.Format(CultureInfo.InvariantCulture, "ffmpeg exited with code {0}: {1}", process.ExitCode, TrimStderr(stderr)));
         }
 
         _logger.LogInformation("Job {JobId}: ffmpeg exited successfully", job.Id);
@@ -248,6 +248,20 @@ public class ConversionEngine
         startInfo.ArgumentList.Add("pipe:1");
         startInfo.ArgumentList.Add("-nostats");
         startInfo.ArgumentList.Add(job.OutputPath);
+    }
+
+    /// <summary>
+    /// Keeps only the last portion of ffmpeg's stderr output, since the full text is stored on the
+    /// job (persisted to disk, sent to the dashboard) and the last lines are what's actually useful
+    /// for diagnosing a failure - the start of the log is just the version/build banner.
+    /// </summary>
+    private static string TrimStderr(StringBuilder stderr)
+    {
+        const int maxChars = 4000;
+        var text = stderr.ToString().Trim();
+        return text.Length <= maxChars
+            ? text
+            : "…(truncated)…" + Environment.NewLine + text[^maxChars..];
     }
 
     private static void KillProcess(Process process)

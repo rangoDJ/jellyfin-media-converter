@@ -125,10 +125,23 @@ public class MediaProbeService
                     info.AudioChannels = TryGetInt(stream, "channels");
                     info.AudioBitRate = TryGetLong(stream, "bit_rate");
                 }
+                else if (codecType == "subtitle")
+                {
+                    var subtitleCodec = stream.TryGetProperty("codec_name", out var sCodec) ? sCodec.GetString() : null;
+                    var language = TryGetLanguageTag(stream) ?? "und";
+                    info.SubtitleTracks.Add(language + " (" + (subtitleCodec ?? "unknown") + ")");
+                }
             }
         }
 
         return info;
+    }
+
+    private static string? TryGetLanguageTag(JsonElement stream)
+    {
+        return stream.TryGetProperty("tags", out var tags) && tags.TryGetProperty("language", out var language)
+            ? language.GetString()
+            : null;
     }
 
     private static string? GetRawString(JsonElement element)

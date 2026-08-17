@@ -84,6 +84,10 @@
             parts.push(info.AudioCodec.toUpperCase() + channels + (audioBitrate ? (' @ ' + audioBitrate) : ''));
         }
 
+        parts.push(info.SubtitleTracks && info.SubtitleTracks.length
+            ? 'Subs: ' + info.SubtitleTracks.length
+            : 'No subs');
+
         var size = formatBytes(info.FileSizeBytes);
         if (size) {
             parts.push(size);
@@ -144,6 +148,7 @@
             'Audio: ' + (info.AudioCodec ? info.AudioCodec.toUpperCase() : 'none') +
                 (info.AudioChannels ? (' ' + info.AudioChannels + 'ch') : '') +
                 (audioBitrate ? (' @ ' + audioBitrate) : ' (bitrate unknown)'),
+            'Subtitles: ' + (info.SubtitleTracks && info.SubtitleTracks.length ? info.SubtitleTracks.join(', ') : 'none'),
             'File size: ' + (formatBytes(info.FileSizeBytes) || 'unknown')
         ];
 
@@ -337,20 +342,44 @@
         }
     }
 
+    var targetVideoCodec = null;
+    var hideOptimalItems = false;
+    var lastLibraryItems = [];
+
+    function isAlreadyOptimal(item) {
+        return !!(targetVideoCodec && item.VideoCodec && item.VideoCodec.toLowerCase() === targetVideoCodec.toLowerCase());
+    }
+
+    function appendOptimalBadge(row, item) {
+        if (!isAlreadyOptimal(item)) {
+            return;
+        }
+
+        var badge = document.createElement('span');
+        badge.style.marginLeft = '6px';
+        badge.style.opacity = '0.7';
+        badge.style.fontStyle = 'italic';
+        badge.textContent = '(already ' + item.VideoCodec.toUpperCase() + ')';
+        row.appendChild(badge);
+    }
+
     function renderLibrary(items) {
         document.getElementById('episodesSection').style.display = 'none';
+        lastLibraryItems = items;
 
         var container = document.getElementById('libraryResults');
         container.innerHTML = '';
 
-        if (!items.length) {
+        var visibleItems = hideOptimalItems ? items.filter(function (item) { return !isAlreadyOptimal(item); }) : items;
+
+        if (!visibleItems.length) {
             var empty = document.createElement('div');
-            empty.textContent = 'No matches.';
+            empty.textContent = items.length ? 'No matches (all results are already in the target codec - see the toggle above).' : 'No matches.';
             container.appendChild(empty);
             return;
         }
 
-        items.forEach(function (item) {
+        visibleItems.forEach(function (item) {
             var row;
             var detailBox = null;
 
@@ -395,6 +424,8 @@
                 var built = buildMediaRow(item.Id, item.Name + ' (' + item.Type + ')');
                 row = built.row;
                 detailBox = built.detailBox;
+
+                appendOptimalBadge(row, item);
 
                 var button = document.createElement('button');
                 button.setAttribute('is', 'emby-button');
@@ -614,6 +645,8 @@
             checkbox.setAttribute('data-episode-id', episode.Id);
             checkbox.style.marginRight = '8px';
             built.row.insertBefore(checkbox, built.row.firstChild);
+
+            appendOptimalBadge(built.row, episode);
 
             var button = document.createElement('button');
             button.setAttribute('is', 'emby-button');
@@ -936,8 +969,32 @@
         fileCell.title = job.SourcePath;
         row.appendChild(fileCell);
 
+        var resultsBox = null;
+
         var statusCell = document.createElement('td');
-        statusCell.textContent = job.Status + (job.Status === 'Failed' && job.ErrorMessage ? (': ' + job.ErrorMessage) : '');
+        if (job.Status === 'Failed' && job.ErrorMessage) {
+            statusCell.textContent = 'Failed (click for details)';
+            statusCell.style.cursor = 'pointer';
+            statusCell.style.textDecoration = 'underline dotted';
+
+            resultsBox = document.createElement('pre');
+            resultsBox.style.display = 'none';
+            resultsBox.style.marginTop = '8px';
+            resultsBox.style.maxHeight = '240px';
+            resultsBox.style.overflowY = 'auto';
+            resultsBox.style.whiteSpace = 'pre-wrap';
+            resultsBox.style.wordBreak = 'break-word';
+            resultsBox.style.background = 'rgba(255, 255, 255, 0.05)';
+            resultsBox.style.padding = '8px';
+            resultsBox.style.fontSize = '0.85em';
+            resultsBox.textContent = job.ErrorMessage;
+
+            statusCell.addEventListener('click', function () {
+                resultsBox.style.display = resultsBox.style.display === 'none' ? 'block' : 'none';
+            });
+        } else {
+            statusCell.textContent = job.Status;
+        }
         row.appendChild(statusCell);
 
         var progressCell = document.createElement('td');
@@ -954,7 +1011,6 @@
         row.appendChild(progressCell);
 
         var actionsCell = document.createElement('td');
-        var resultsBox = null;
 
         if (isPendingReview) {
             var compareButton = document.createElement('button');
@@ -1294,6 +1350,31 @@
             .catch(function () {});
     }
 
+    function refreshStats() {
+        var bar = document.getElementById('statsBar');
+        if (!bar) {
+            return;
+        }
+
+        apiGet('MediaConverter/Stats')
+            .then(function (stats) {
+                if (!stats.CompletedJobCount) {
+                    bar.textContent = '';
+                    return;
+                }
+
+                var savedText = formatBytes(stats.TotalSavedBytes) || '0 MB';
+                var ratioText = stats.AverageCompressionRatio != null
+                    ? ' (output files average ' + Math.round(stats.AverageCompressionRatio * 100) + '% of their source size)'
+                    : '';
+                bar.textContent = 'Space saved so far: ' + savedText + ' across ' + stats.CompletedJobCount +
+                    ' job' + (stats.CompletedJobCount === 1 ? '' : 's') + ratioText + '.';
+            })
+            .catch(function () {
+                bar.textContent = '';
+            });
+    }
+
     function refreshJobs() {
         apiGet('MediaConverter/Jobs')
             .then(renderJobs)
@@ -1301,6 +1382,7 @@
                 showError('Loading jobs', error);
             });
         refreshQueuePausedState();
+        refreshStats();
     }
 
     function search() {
@@ -1317,6 +1399,17 @@
 
     function init() {
         document.getElementById('jobsBulkActions').appendChild(buildBulkActionsBar());
+
+        apiGet('MediaConverter/Config/DefaultVideoCodec')
+            .then(function (codec) {
+                targetVideoCodec = codec;
+            })
+            .catch(function () {});
+
+        document.getElementById('hideOptimalCheckbox').addEventListener('change', function (event) {
+            hideOptimalItems = event.target.checked;
+            renderLibrary(lastLibraryItems);
+        });
 
         document.getElementById('queuePauseToggleButton').addEventListener('click', function () {
             var newState = !queuePaused;

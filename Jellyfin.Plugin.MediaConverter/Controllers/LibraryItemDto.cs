@@ -18,7 +18,8 @@ public class LibraryItemDto
     /// <param name="seriesName">The parent series name, for episodes; <see langword="null"/> otherwise.</param>
     /// <param name="seasonNumber">The season number, for episodes; <see langword="null"/> otherwise.</param>
     /// <param name="episodeNumber">The episode number, for episodes; <see langword="null"/> otherwise.</param>
-    public LibraryItemDto(Guid id, string name, string type, string path, long? runTimeTicks, string? seriesName, int? seasonNumber, int? episodeNumber)
+    /// <param name="videoCodec">The item's already-indexed video codec (e.g. "hevc"), for movies/episodes; <see langword="null"/> otherwise or if unknown.</param>
+    public LibraryItemDto(Guid id, string name, string type, string path, long? runTimeTicks, string? seriesName, int? seasonNumber, int? episodeNumber, string? videoCodec)
     {
         Id = id;
         Name = name;
@@ -28,6 +29,7 @@ public class LibraryItemDto
         SeriesName = seriesName;
         SeasonNumber = seasonNumber;
         EpisodeNumber = episodeNumber;
+        VideoCodec = videoCodec;
     }
 
     /// <summary>
@@ -69,4 +71,10 @@ public class LibraryItemDto
     /// Gets the episode number, for episodes; <see langword="null"/> otherwise.
     /// </summary>
     public int? EpisodeNumber { get; }
+
+    /// <summary>
+    /// Gets the item's already-indexed video codec (e.g. "hevc"), for movies/episodes;
+    /// <see langword="null"/> for series or if the codec isn't known yet.
+    /// </summary>
+    public string? VideoCodec { get; }
 }

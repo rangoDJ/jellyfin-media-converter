@@ -51,6 +51,10 @@
 
                 <div class="verticalSection">
                     <h2>Results</h2>
+                    <label style="display:inline-flex; align-items:center; gap:4px; opacity:0.85; margin-bottom:8px;">
+                        <input type="checkbox" id="hideOptimalCheckbox" />
+                        Hide items already in the target codec
+                    </label>
                     <div id="libraryResults"></div>
                 </div>
 
@@ -64,6 +68,7 @@
 
                 <div class="verticalSection">
                     <h2>Jobs</h2>
+                    <div id="statsBar" style="opacity:0.85; margin-bottom:8px;"></div>
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                         <button is="emby-button" type="button" class="raised" id="queuePauseToggleButton">
                             <span>Pause queue after current job</span>
