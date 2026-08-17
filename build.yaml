@@ -1,7 +1,7 @@
 ---
 name: "Media Converter"
 guid: "ced1b4c4-47d1-4cd5-8d22-1491f69676ef"
-version: "1.0.33.0"
+version: "1.0.34.0"
 targetAbi: "12.0.0.0"
 framework: "net10.0"
 overview: "Convert library media files from the dashboard, using this server's configured ffmpeg hardware transcoder or CPU."
@@ -17,6 +17,22 @@ owner: "rangoDJ"
 artifacts:
 - "Jellyfin.Plugin.MediaConverter.dll"
 changelog: >
+  1.0.34: Fixed "Remove all history" not removing cancelled/failed
+  "create new variant" jobs - VariantResolution is set to PendingReview
+  at creation for every such job and only ever cleared once it reaches
+  Completed and a keep/delete decision is made, so a job cancelled or
+  failed before finishing stayed stuck at PendingReview forever with
+  no real decision pending, wrongly excluding it from bulk removal.
+  Also a full visual redesign: card-style sections, colored status
+  badges, a form grid for the rules/convert dialogs instead of one
+  full-width input per line, and a donut chart showing percent of
+  space saved above the jobs list. Fixed a page-breaking bug introduced
+  by this redesign along the way: the new styles lived in a <head>
+  <style> tag, but Jellyfin's web client only extracts and keeps
+  div[data-role="page"] from a fetched config page's HTML, discarding
+  everything outside it (the same class of bug already documented here
+  for <script> tags in 1.0.5-1.0.7) - the stylesheet is now the first
+  child inside the page div instead.
   1.0.33: Queued jobs can now be moved to the front of the queue
   ("Move to top" button) instead of always running strictly
   first-in-first-out. Added a new "Automatic Conversion Rules"

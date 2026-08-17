@@ -957,6 +957,24 @@
         return track;
     }
 
+    var STATUS_COLORS = {
+        Queued: { fg: '#d0d0d0', bg: 'rgba(255, 255, 255, 0.1)' },
+        Running: { fg: '#4fc3f7', bg: 'rgba(79, 195, 247, 0.15)' },
+        Completed: { fg: '#81c784', bg: 'rgba(129, 199, 132, 0.15)' },
+        Failed: { fg: '#e57373', bg: 'rgba(229, 115, 115, 0.15)' },
+        Cancelled: { fg: '#ffb74d', bg: 'rgba(255, 183, 77, 0.15)' }
+    };
+
+    function buildStatusBadge(status, text) {
+        var colors = STATUS_COLORS[status] || STATUS_COLORS.Queued;
+        var badge = document.createElement('span');
+        badge.className = 'mcStatusBadge';
+        badge.style.color = colors.fg;
+        badge.style.background = colors.bg;
+        badge.textContent = text || status;
+        return badge;
+    }
+
     // Builds a job's table row plus its (initially hidden) expanded comparison results box, if
     // applicable. The comparison box is rendered by the caller as a separate full-width row
     // underneath, since it holds multi-line text and video players that don't fit in a cell.
@@ -984,9 +1002,9 @@
 
         var statusCell = document.createElement('td');
         if (job.Status === 'Failed' && job.ErrorMessage) {
-            statusCell.textContent = 'Failed (click for details)';
+            statusCell.appendChild(buildStatusBadge('Failed', 'Failed (click for details)'));
             statusCell.style.cursor = 'pointer';
-            statusCell.style.textDecoration = 'underline dotted';
+            statusCell.title = 'Click to show/hide the full error';
 
             resultsBox = document.createElement('pre');
             resultsBox.style.display = 'none';
@@ -1004,7 +1022,7 @@
                 resultsBox.style.display = resultsBox.style.display === 'none' ? 'block' : 'none';
             });
         } else {
-            statusCell.textContent = job.Status;
+            statusCell.appendChild(buildStatusBadge(job.Status));
         }
         row.appendChild(statusCell);
 
@@ -1208,8 +1226,16 @@
     }
 
     function isFinishedNotPending(job) {
-        return job.VariantResolution !== 'PendingReview'
-            && (job.Status === 'Completed' || job.Status === 'Failed' || job.Status === 'Cancelled');
+        // VariantResolution is set to PendingReview at creation for every "create new variant" job
+        // and is only ever cleared once the job actually reaches Completed and a keep/delete
+        // decision is made - a job cancelled or failed before finishing stays stuck at
+        // PendingReview forever with no real decision to make, so only gate on it for Completed
+        // jobs specifically (matching the eligibility check the "Remove" button itself uses).
+        if (job.Status === 'Completed') {
+            return job.VariantResolution !== 'PendingReview';
+        }
+
+        return job.Status === 'Failed' || job.Status === 'Cancelled';
     }
 
     function buildBulkActionsBar() {
@@ -1380,6 +1406,50 @@
             .catch(function () {});
     }
 
+    var SVG_NS = 'http://www.w3.org/2000/svg';
+
+    // A donut chart showing what percent of the original size was saved, using the classic
+    // stroke-dasharray trick: a circle with r=15.915 has a circumference of ~100, so the dash
+    // array can be expressed directly as "percent, 100-percent".
+    function buildSavedDonut(percentSaved) {
+        var pct = Math.max(0, Math.min(100, percentSaved));
+
+        var svg = document.createElementNS(SVG_NS, 'svg');
+        svg.setAttribute('viewBox', '0 0 36 36');
+
+        var track = document.createElementNS(SVG_NS, 'circle');
+        track.setAttribute('cx', '18');
+        track.setAttribute('cy', '18');
+        track.setAttribute('r', '15.915');
+        track.setAttribute('fill', 'none');
+        track.setAttribute('stroke', 'rgba(255, 255, 255, 0.12)');
+        track.setAttribute('stroke-width', '4');
+        svg.appendChild(track);
+
+        var arc = document.createElementNS(SVG_NS, 'circle');
+        arc.setAttribute('cx', '18');
+        arc.setAttribute('cy', '18');
+        arc.setAttribute('r', '15.915');
+        arc.setAttribute('fill', 'none');
+        arc.setAttribute('stroke', '#81c784');
+        arc.setAttribute('stroke-width', '4');
+        arc.setAttribute('stroke-linecap', 'round');
+        arc.setAttribute('stroke-dasharray', pct + ' ' + (100 - pct));
+        arc.setAttribute('transform', 'rotate(-90 18 18)');
+        svg.appendChild(arc);
+
+        var label = document.createElementNS(SVG_NS, 'text');
+        label.setAttribute('x', '18');
+        label.setAttribute('y', '20.8');
+        label.setAttribute('text-anchor', 'middle');
+        label.setAttribute('font-size', '8.5');
+        label.setAttribute('fill', 'currentColor');
+        label.textContent = Math.round(pct) + '%';
+        svg.appendChild(label);
+
+        return svg;
+    }
+
     function refreshStats() {
         var bar = document.getElementById('statsBar');
         if (!bar) {
@@ -1388,20 +1458,41 @@
 
         apiGet('MediaConverter/Stats')
             .then(function (stats) {
+                bar.innerHTML = '';
+
                 if (!stats.CompletedJobCount) {
-                    bar.textContent = '';
                     return;
                 }
 
+                var percentSaved = stats.TotalSourceBytes > 0
+                    ? (stats.TotalSavedBytes / stats.TotalSourceBytes) * 100
+                    : 0;
+
+                var card = document.createElement('div');
+                card.className = 'mcStatCard';
+                card.appendChild(buildSavedDonut(percentSaved));
+
+                var text = document.createElement('div');
+                text.className = 'mcStatText';
+
                 var savedText = formatBytes(stats.TotalSavedBytes) || '0 MB';
-                var ratioText = stats.AverageCompressionRatio != null
-                    ? ' (output files average ' + Math.round(stats.AverageCompressionRatio * 100) + '% of their source size)'
-                    : '';
-                bar.textContent = 'Space saved so far: ' + savedText + ' across ' + stats.CompletedJobCount +
-                    ' job' + (stats.CompletedJobCount === 1 ? '' : 's') + ratioText + '.';
+                var line1 = document.createElement('div');
+                line1.innerHTML = '<strong>' + savedText + '</strong> saved so far across ' +
+                    stats.CompletedJobCount + ' job' + (stats.CompletedJobCount === 1 ? '' : 's') + '.';
+                text.appendChild(line1);
+
+                if (stats.AverageCompressionRatio != null) {
+                    var line2 = document.createElement('div');
+                    line2.textContent = 'Output files average ' + Math.round(stats.AverageCompressionRatio * 100) +
+                        '% of their original size.';
+                    text.appendChild(line2);
+                }
+
+                card.appendChild(text);
+                bar.appendChild(card);
             })
             .catch(function () {
-                bar.textContent = '';
+                bar.innerHTML = '';
             });
     }
 

@@ -2,7 +2,123 @@
 <html>
 <head>
     <title>Media Converter</title>
-    <style>
+</head>
+<body>
+    <div id="mediaConverterPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+        <!--
+            This <style> lives here, as the first child inside #mediaConverterPage, rather than in
+            <head> - Jellyfin's web client only extracts div[data-role="page"] from the fetched
+            config-page HTML (via innerHTML) and discards everything outside it, so a <head><style>
+            here is silently dropped entirely (the same class of bug documented in the 1.0.5-1.0.7
+            changelog entries for <script> tags - it applies to <style> too).
+        -->
+        <style>
+        #mediaConverterPage {
+            --mc-border: rgba(255, 255, 255, 0.09);
+            --mc-card-bg: rgba(255, 255, 255, 0.025);
+            --mc-row-hover: rgba(255, 255, 255, 0.035);
+            --mc-muted: rgba(255, 255, 255, 0.65);
+            --mc-radius: 10px;
+            --mc-gap: 10px;
+        }
+
+        #mediaConverterPage .content-primary {
+            max-width: 1100px;
+        }
+
+        #mediaConverterPage .verticalSection {
+            background: var(--mc-card-bg);
+            border: 1px solid var(--mc-border);
+            border-radius: var(--mc-radius);
+            padding: 20px 22px;
+            margin-bottom: 18px;
+        }
+
+        #mediaConverterPage .verticalSection h1 {
+            margin: 0 0 16px;
+        }
+
+        #mediaConverterPage .verticalSection h2 {
+            margin: 0 0 14px;
+            font-size: 1.2em;
+        }
+
+        #mediaConverterPage .verticalSection h3 {
+            margin: 20px 0 12px;
+            font-size: 1em;
+            opacity: 0.9;
+            border-top: 1px solid var(--mc-border);
+            padding-top: 16px;
+        }
+
+        #mediaConverterPage .verticalSection > p {
+            color: var(--mc-muted);
+            line-height: 1.5;
+            max-width: 70ch;
+        }
+
+        /* Every "row" built by JS (search results, episodes, jobs bulk-panel rows, rules) shares
+           this class - styling it once here fixes spacing/alignment everywhere at once instead of
+           needing to touch every call site that builds one. */
+        #mediaConverterPage .listItem {
+            display: flex;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px 12px;
+            padding: 10px 4px;
+            border-bottom: 1px solid var(--mc-border);
+        }
+
+        #mediaConverterPage .listItem:last-child {
+            border-bottom: none;
+        }
+
+        #mediaConverterPage .listItem:hover {
+            background: var(--mc-row-hover);
+        }
+
+        #mediaConverterPage .listItem > span:first-of-type {
+            flex: 1 1 280px;
+            min-width: 0;
+            overflow-wrap: anywhere;
+        }
+
+        #mediaConverterPage .mcFormGrid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 4px 16px;
+        }
+
+        #mediaConverterPage .mcFormGrid .inputContainer {
+            margin: 0.3em 0;
+        }
+
+        #mediaConverterPage .mcStatusBadge {
+            display: inline-block;
+            padding: 2px 9px;
+            border-radius: 999px;
+            font-size: 0.85em;
+            font-weight: 500;
+            white-space: nowrap;
+        }
+
+        #mediaConverterPage .mcStatCard {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+        }
+
+        #mediaConverterPage .mcStatCard svg {
+            width: 64px;
+            height: 64px;
+            flex-shrink: 0;
+        }
+
+        #mediaConverterPage .mcStatCard .mcStatText {
+            color: var(--mc-muted);
+            line-height: 1.5;
+        }
+
         #jobsTable {
             width: 100%;
             border-collapse: collapse;
@@ -12,9 +128,21 @@
         #jobsTable th,
         #jobsTable td {
             text-align: left;
-            padding: 6px 10px;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            padding: 8px 10px;
+            border-bottom: 1px solid var(--mc-border);
             vertical-align: middle;
+        }
+
+        #jobsTable th {
+            font-weight: 600;
+            opacity: 0.75;
+            font-size: 0.9em;
+            text-transform: uppercase;
+            letter-spacing: 0.03em;
+        }
+
+        #jobsTable tbody tr:hover {
+            background: var(--mc-row-hover);
         }
 
         #jobsTable th:nth-child(1),
@@ -30,11 +158,19 @@
 
         #jobsTableWrapper {
             overflow-x: auto;
+            border: 1px solid var(--mc-border);
+            border-radius: var(--mc-radius);
         }
-    </style>
-</head>
-<body>
-    <div id="mediaConverterPage" data-role="page" class="page type-interior pluginConfigurationPage" data-require="emby-input,emby-button,emby-select,emby-checkbox">
+
+        #jobsTableWrapper #jobsTable {
+            border: none;
+        }
+
+        #jobsBulkActions {
+            margin-bottom: var(--mc-gap);
+        }
+        </style>
+
         <div data-role="content">
             <div class="content-primary">
                 <div id="mediaConverterError" class="verticalSection" style="display:none;color:#ff8a80;"></div>
@@ -68,7 +204,7 @@
 
                 <div class="verticalSection">
                     <h2>Jobs</h2>
-                    <div id="statsBar" style="opacity:0.85; margin-bottom:8px;"></div>
+                    <div id="statsBar" style="margin-bottom:14px;"></div>
                     <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
                         <button is="emby-button" type="button" class="raised" id="queuePauseToggleButton">
                             <span>Pause queue after current job</span>
@@ -94,7 +230,7 @@
 
                 <div class="verticalSection">
                     <h2>Automatic Conversion Rules</h2>
-                    <p style="opacity:0.7;">
+                    <p>
                         Each rule scans the whole library and queues any movie/episode not already
                         in its target codec (matching a path filter, if set). Rules run via the
                         "Apply Media Converter rules" scheduled task - configure its schedule from
@@ -104,41 +240,43 @@
                     <button is="emby-button" type="button" class="raised" id="runRulesNowButton">
                         <span>Run rules now</span>
                     </button>
-                    <div id="rulesResults" style="margin-top:8px;"></div>
+                    <div id="rulesResults" style="margin-top:12px;"></div>
 
                     <h3>Add rule</h3>
-                    <div class="inputContainer">
-                        <input is="emby-input" type="text" id="ruleNameInput" label="Rule name" />
+                    <div class="mcFormGrid">
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="ruleNameInput" label="Rule name" />
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="text" id="rulePathContainsInput" label="Path contains (optional filter, e.g. a library folder)" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="ruleContainerSelect">Container</label>
+                            <select is="emby-select" id="ruleContainerSelect">
+                                <option value="mkv">mkv</option>
+                                <option value="mp4">mp4</option>
+                            </select>
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="ruleCodecSelect">Target codec</label>
+                            <select is="emby-select" id="ruleCodecSelect">
+                                <option value="hevc">HEVC (H.265)</option>
+                                <option value="h264">H.264</option>
+                                <option value="av1">AV1</option>
+                            </select>
+                        </div>
+                        <div class="inputContainer">
+                            <input is="emby-input" type="number" id="ruleQualityInput" label="Quality" value="23" />
+                        </div>
+                        <div class="inputContainer">
+                            <label class="inputLabel" for="ruleModeSelect">Mode</label>
+                            <select is="emby-select" id="ruleModeSelect">
+                                <option value="Replace">Replace original</option>
+                                <option value="Variant">Create new variant</option>
+                            </select>
+                        </div>
                     </div>
-                    <div class="inputContainer">
-                        <input is="emby-input" type="text" id="rulePathContainsInput" label="Path contains (optional filter, e.g. a library folder)" />
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel" for="ruleContainerSelect">Container</label>
-                        <select is="emby-select" id="ruleContainerSelect">
-                            <option value="mkv">mkv</option>
-                            <option value="mp4">mp4</option>
-                        </select>
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel" for="ruleCodecSelect">Target codec</label>
-                        <select is="emby-select" id="ruleCodecSelect">
-                            <option value="hevc">HEVC (H.265)</option>
-                            <option value="h264">H.264</option>
-                            <option value="av1">AV1</option>
-                        </select>
-                    </div>
-                    <div class="inputContainer">
-                        <input is="emby-input" type="number" id="ruleQualityInput" label="Quality" value="23" />
-                    </div>
-                    <div class="inputContainer">
-                        <label class="inputLabel" for="ruleModeSelect">Mode</label>
-                        <select is="emby-select" id="ruleModeSelect">
-                            <option value="Replace">Replace original</option>
-                            <option value="Variant">Create new variant</option>
-                        </select>
-                    </div>
-                    <button is="emby-button" type="button" class="raised button-submit" id="addRuleButton">
+                    <button is="emby-button" type="button" class="raised button-submit" id="addRuleButton" style="margin-top:14px;">
                         <span>Add rule</span>
                     </button>
                 </div>
@@ -147,6 +285,7 @@
 
         <div id="convertDialog" style="display:none;">
             <h3 id="convertDialogTitle">Convert</h3>
+            <div class="mcFormGrid">
             <div class="inputContainer">
                 <label class="inputLabel" for="containerSelect">Container</label>
                 <select is="emby-select" id="containerSelect">
@@ -235,7 +374,8 @@
             <div class="inputContainer">
                 <input is="emby-input" type="text" id="ffmpegOverrideInput" label="Advanced: raw ffmpeg args (optional, overrides all encoding options above)" />
             </div>
-            <button is="emby-button" type="button" class="raised button-submit" id="startConversionButton">
+            </div>
+            <button is="emby-button" type="button" class="raised button-submit" id="startConversionButton" style="margin-top:14px;">
                 <span>Convert</span>
             </button>
         </div>
