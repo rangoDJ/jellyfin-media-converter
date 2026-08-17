@@ -39,6 +39,9 @@
             var detail = (error && (error.message || error.statusText)) || 'request failed';
             banner.textContent = context + ': ' + detail;
             banner.style.display = 'block';
+            // The banner lives at the top of the page while actions like the Jobs bulk buttons
+            // are further down, so without this a failure silently updates an off-screen element.
+            banner.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
         }
     }
 
@@ -434,7 +437,29 @@
             seasons[seasonKey].push(episode);
         });
 
+        // Numeric ascending (Specials = season 0 first, matching Jellyfin's own convention),
+        // with episodes that have no season assigned at all pushed to the very end.
+        order.sort(function (a, b) {
+            if (a === -1) {
+                return 1;
+            }
+
+            if (b === -1) {
+                return -1;
+            }
+
+            return a - b;
+        });
+
         return { seasons: seasons, order: order };
+    }
+
+    function seasonLabel(seasonKey) {
+        if (seasonKey === -1) {
+            return 'No season';
+        }
+
+        return seasonKey === 0 ? 'Specials' : 'Season ' + seasonKey;
     }
 
     function browseSeries(seriesId, seriesName) {
@@ -484,7 +509,7 @@
             row.className = 'listItem';
 
             var label = document.createElement('span');
-            var seasonName = seasonKey === -1 ? 'No season' : 'Season ' + seasonKey;
+            var seasonName = seasonLabel(seasonKey);
             label.textContent = seasonName + ' (' + seasonEpisodes.length + ' episode' + (seasonEpisodes.length === 1 ? '' : 's') + ')';
             row.appendChild(label);
 
@@ -976,15 +1001,26 @@
                     return;
                 }
 
-                Promise.all(targets.map(function (job) {
+                // allSettled (not all) so one job failing (e.g. it started running between the
+                // fetch above and now) doesn't prevent every other already-eligible job from
+                // being removed.
+                Promise.allSettled(targets.map(function (job) {
                     return apiDelete('MediaConverter/Jobs/' + job.Id).then(function () {
                         delete jobRenderCache[job.Id];
                     });
-                })).then(function () {
-                    clearError();
-                    refreshJobs();
-                }).catch(function (error) {
-                    showError('Bulk remove', error);
+                })).then(function (results) {
+                    var failures = results.filter(function (result) { return result.status === 'rejected'; });
+                    if (failures.length) {
+                        showError(
+                            'Bulk remove',
+                            { message: 'Removed ' + (results.length - failures.length) + ' of ' + results.length + ' job(s). ' + failures.length + ' failed - see console for details.' });
+                        failures.forEach(function (failure) {
+                            console.error('Media Converter: Bulk remove', failure.reason);
+                        });
+                    } else {
+                        clearError();
+                    }
+
                     refreshJobs();
                 });
             })
